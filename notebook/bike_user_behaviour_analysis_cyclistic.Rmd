@@ -1,0 +1,1945 @@
+---
+title: "**Cyclistic BikeShare data reveal bussiness opportunities**"
+project for: "Capstone project of Google Data Analytic Certificate"
+author: "Wani2Y"
+first created: "04/03/2023"
+last modified: "06/01/2023"
+output: 
+  html_document:
+    code_folding: hide
+    toc: TRUE
+    number_section: TRUE
+    theme: darkly
+    highlight: zenburn
+    css: style.css
+---
+
+```{r setup}
+knitr::opts_chunk$set(echo = TRUE, tidy = TRUE, out.width = '80%', 
+                      warning = FALSE, message = FALSE, eval = TRUE, 
+                      cache = TRUE, cache.lazy = FALSE, results = 'hold', 
+                      collapse = TRUE)
+```
+
+# ***TL; DR***:
+Using the open data provided by Motivate International Inc. under this
+non-commercial license, this report examine a data set from 2013 to 2023, in
+order to understand the riding behaviour of subscribers and customers who use
+the services of Cyclistic. \* data loss occurred in 2017 and 2020. \*
+subscribers generally use services of Cyclistic more often than customers,
+especially on weekdays. \* subscribers prefers classic bikes whereas customers
+uses electric bikes more often. \* trip duration and ride distance are generally
+shorter for trips by subscribers than for customers. \* most rides start and end
+in the northeast of Chicago, near its downtown area \* combining the insights
+from the number of rides, trip duration, and ride distance, subscribers likely
+use services of Cyclistic to commute to and from work.
+
+# Full report
+```{r}
+#load all necessary library for this report
+library(stringi)
+library(tidyverse)
+library(lubridate)
+library(dplyr)
+library(hms)
+library(knitr)
+library(coin)
+library(caret)
+library(reshape2)
+library(geosphere)
+library(ggplot2)
+library(pwr)
+library(rstatix)
+library(stats)
+library(scales)
+library(sf)
+library(tmap)
+library(tmaptools)
+```
+
+# Introduction
+Cyclistic is a bike-share program with 5824 bikes and 692 docking stations
+located in Chicago, USA. Three bike options are available for casual riders and
+annual members. Among the users, only 8% use non-traditional bikes with
+assisitive options, and 30% of the users commute daily using Cyclistic bikes. To
+develop Cyclistic, the number of users subscribing to the annual membership,
+which is more profitable, need to be increased. Investigating the different
+behaviours between casual riders and annual members can help Cyclistic develop
+its customer profiles, which in turn can facilitate development and
+advertisements of the annual membership targeted at casual riders.
+
+This report uses the historical bike trip data (January 2013 -- November 2023)
+to investigate whether casual bikers and annual members of Cyclistic bikes use
+the program differently. If they are indeed different, how the two types of
+users differ, and what riding patterns are characteristic to annual members.
+
+# Data preparation
+
+## Data source
+The data set used in this report is owned by The City of Chicago and is made
+available by Motivate International Inc. under this non-commercial license
+(<https://ride.divvybikes.com/data-license-agreement>). Bike-share data from
+January 2013 to April 2023 were downloaded from this website
+(<https://divvy-tripdata.s3.amazonaws.com/index.html>). Data set from 2013 to
+2019 were included in this study, because annual members may have cancelled
+their subscriptions due to the COVID-19 pandemic. As COVID-19 related
+restrictions have been relaxed, data from years before the pandemic can help
+remove the biases from the pandemic.
+
+## Data check up
+Table 1 Data checkup table to evaluate the quality of different data set\
+The data is owned by The City of Chicago, and is provided by Motivate
+International Inc. via Google Analytics program on Coursera. Bike and station
+data are stored separately between January 2013 and January 2018, and they are
+compiled into a single spreadsheet from January 2018 to November 2022. Data are
+organised into a single spreadsheet in 2013, by quarters between January 2014
+and March 2020, and by month between April 2020 and November 2022. All data are
+in .csv format except for those from Quarter 1 and 2 in 2014, which is in .xlsx
+format and have been converted to .csv for this report.
+
+| Data set | Biases    | Reliable | Original | Comprehensive | Current | Cited | Consistent |
+|----------|-----------|----------|----------|---------------|---------|-------|------------|
+| 2023     | problem 1 | Yes      | No       | Yes\*         | Yes     | Yes   | No         |
+| 2022     | problem 1 | Yes      | No       | Yes\*         | No      | Yes   | No         |
+| 2021     | problem 1 | Yes      | No       | Yes\*         | No      | Yes   | No         |
+| 2020     | problem 1 | Yes      | No       | No\*          | No      | Yes   | No         |
+| 2019     | problem 1 | Yes      | No       | Yes\*         | No      | Yes   | No         |
+| 2018     | problem 1 | Yes      | No       | Yes\*         | No      | Yes   | No         |
+| 2017     | problem 1 | Yes      | No       | No\*          | No      | Yes   | No         |
+| 2016     | problem 1 | Yes      | No       | Yes\*         | No      | Yes   | No         |
+| 2015     | problem 1 | Yes      | No       | Yes\*         | No      | Yes   | No         |
+| 2014     | problem 1 | Yes      | No       | Yes\*         | No      | Yes   | No         |
+| 2013     | problem 1 | Yes      | No       | Yes\*         | No      | Yes   | No         |
+
+For the purpose of distinguishing behaviours between annual members from causal
+riders using Cylistic services. The following variables/metrics are highly
+informative: (1) membership information (2) date and time of the rides (3) GPS
+coordinates of the start and end stations (4) duration of the rides
+
+# Data processing
+
+## Data reorganisation
+The data among years have different columns and column names. For the purpose of
+this report, only the following data column from the original data set have been
+kept, and column names have been renamed for consistent usage in R. The
+reorganisation was done in Excel. For csv document too large for Excel, they
+were read in R and separate rows into two separate csvs. All rows of relevant
+data are therefore kept for this analysis. (1) bike_type (2) start_datetime (3)
+end_datetime (4) start_station_id (5) start_station_name (6) start_station_lon
+(7) start_station_lat (8) end_station_id (9) end_station_name (10)
+end_station_lon (11) end_station_lat (12) membership
+
+Both start date and end date can be informative to estimate the duration of bike
+rides. However, different users would likely have different trip duration, the
+impacts of which make combining start and end dates together in the analyses
+here challenging. For the sake of consistency, we will use date and time at the
+start of a riding trip as the time measure throughout this report.
+
+## Data assembling and cleaning using R
+
+### Import data
+Read in the organised csv files and the shape file of Chicago.
+```{r}
+# read the file names of all csv files without extensions.
+filenames <- tools::file_path_sans_ext(
+  list.files(path ="./",
+             pattern ="*.csv"))  
+
+# read in all csv files from the subfolder.
+raw_csv <-  list()
+for(i in filenames){
+  filepath <- file.path("./",paste(i,".csv",sep =""))
+  raw_csv[[i]] <- read.csv(filepath)
+}
+
+# read in the shape file of Chicago for subsequent spatial mapping.
+chicago <- st_read("chicago.shp") 
+```
+
+Transform datatypes of raw data into a consistent format.
+```{r}
+# convert columns of data sets into appropriate datatypes before 
+# combining data sets, which can avoid potential joining issues. 
+# longitudes and lattitudes are already in dbl with six decimal figures, 
+# so we can convert them into geospatial format later.
+for (i in 1: length(raw_csv)){
+  raw_csv[[i]]$bike_type <- as.factor(raw_csv[[i]]$bike_type)
+  raw_csv[[i]]$start_station_id <- as.factor(raw_csv[[i]]$start_station_id)
+  raw_csv[[i]]$start_station_name <- as.factor(raw_csv[[i]]$start_station_name)
+  raw_csv[[i]]$end_station_id <- as.factor(raw_csv[[i]]$end_station_id)
+  raw_csv[[i]]$end_station_name <- as.factor(raw_csv[[i]]$end_station_name)
+  raw_csv[[i]]$membership <- as.factor(raw_csv[[i]]$membership)
+}
+
+# datetime has different formats so they need to be converted into 
+# the same format consistently. '%Y-%m-%d %H:%M:%S' is chosen here.
+# datetime in format '%Y-%m-%d %H:%M:%S'.
+raw_csv[[1]]$start_datetime <- 
+  strptime(raw_csv[[1]]$start_datetime, 
+           format = '%Y-%m-%d %H:%M:%S', tz = "UTC")
+raw_csv[[1]]$end_datetime <- 
+  strptime(raw_csv[[1]]$end_datetime, 
+           format = '%Y-%m-%d %H:%M:%S', tz = "UTC")
+
+# datetime in format '%m/%d/%Y %H:%M:%S'.
+for (i in c(2:15)){
+  raw_csv[[i]]$start_datetime <- 
+    strptime(raw_csv[[i]]$start_datetime, 
+             format = '%m/%d/%Y %H:%M', tz = "UTC")
+  raw_csv[[i]]$end_datetime <- 
+    strptime(raw_csv[[i]]$end_datetime, 
+             format = '%m/%d/%Y %H:%M', tz = "UTC")
+}
+
+# datetime in format '%m/%d/%Y %H:%M:%S'.
+for (i in c(16:24)){
+  raw_csv[[i]]$start_datetime <- 
+    strptime(raw_csv[[i]]$start_datetime, 
+             format = '%m/%d/%Y %H:%M:%S', tz = "UTC")
+  raw_csv[[i]]$end_datetime <- 
+    strptime(raw_csv[[i]]$end_datetime, 
+             format = '%m/%d/%Y %H:%M:%S', tz = "UTC")
+}
+
+# datetime in format '%Y-%m-%d %H:%M'.
+for (i in c(25:74)){
+  raw_csv[[i]]$start_datetime <- 
+    strptime(raw_csv[[i]]$start_datetime, 
+             format = '%Y-%m-%d %H:%M', tz = "UTC")
+  raw_csv[[i]]$end_datetime <- 
+    strptime(raw_csv[[i]]$end_datetime, 
+             format = '%Y-%m-%d %H:%M', tz = "UTC")
+}
+```
+
+Combine all csv files into a single dataframe for further processing.
+
+```{r}
+ride_data <- bind_rows(raw_csv, .id = "csv_names") %>% as_tibble()
+```
+
+### Examine the incomplete data
+A quick look at the incomplete data.
+```{r}
+# we consider rows without station ids, start datetime, 
+# and end datetime as unreliable/incomplete data, 
+# which we can use as indicators of data loss. 
+# Accordingly, we can evaluate some patterns regarding data loss.
+lost_date <- 
+  ride_data[(is.na(ride_data$start_datetime) | 
+               is.na(ride_data$end_datetime)),]
+lost_station <- ride_data[(is.na(ride_data$start_station_id) | 
+                             is.na(ride_data$end_station_id)), ]
+
+lost_station$start_year <- 
+  year(lost_station$start_datetime)
+lost_station$start_month <- 
+  month(lost_station$start_datetime,
+        label = TRUE, abbr = TRUE)
+
+lost_station <- 
+  lost_station %>% 
+  select(c("membership", "start_year", "start_month",
+           "start_station_lon", "start_station_lat",
+           "end_station_lon", "end_station_lat")) %>%
+  drop_na()
+
+# examine the date at which the data is incomplete.
+unique(lost_date$csv_names)
+# all incomplete data come from Q4 of 2017, 
+# which suggests that this data loss may be a one time incident.
+
+unique(lost_station$start_year)
+# all data without station id come from 2020, 
+# which again may be a stand alone incident.
+
+unique(lost_station$start_month)
+# note that July, August, Setember, October, 
+# and November are the only months in 2020 
+# that does not experience station id loss.
+```
+
+We then plot to see whether customers lost more ride data compared to
+subscribers in Q4 2017.
+```{r}
+lost_plot_data <- data.frame(
+  membership = as.factor(c("Subscriber", "Customer")),
+  number_of_rides = c(sum(ride_data$membership == "Subscriber", na.rm=TRUE),
+                      sum(ride_data$membership == "Customer", na.rm=TRUE))
+)
+
+
+# bar graph
+p_lost_data <- 
+  ggplot(lost_plot_data, 
+         aes(x = membership, y = number_of_rides, fill = membership)) + 
+  geom_bar(position="dodge", stat="identity") +  
+  scale_y_continuous(labels = scales::label_number(scale_cut = cut_short_scale()), 
+                     expand = c(0, 0), limits = c(0, NA)) +
+  xlab("Membership") +
+  ylab("Lost station id count") +
+  ggtitle("Data Loss Counted by Stations") +
+  scale_fill_manual(name = "membership", values = c("#41B6E6", "#E4002B")) + 
+  theme_classic() +
+  theme(plot.title = element_text(hjust = 0.5))
+p_lost_data
+
+# remove the large csv object to save RAM
+rm(raw_csv)
+
+# my pC has limited memory 
+# so I release unused RAM where appropriate throughout the script
+invisible(gc())
+```
+Result of this section: (1) substantially more data was lost from rides by
+subscribers than customers during Q4 of 2017.
+
+We then examine the geospatial distribution of bike stations with GPS data but
+lack proper id in the data set. This acts as a measure to show the location
+where data loss took place.
+```{r}
+# start station
+# convert geospatial data from dbl format to geometry format.
+l_start_map <- lost_station[, c(1, 4, 5)]
+l_start_map <- st_as_sf(l_start_map, coords = c("start_station_lon", "start_station_lat"))
+l_start_map$membership <- recode_factor(l_start_map$membership, casual = "Customer",
+                                                                member = "Subscriber")
+l_start_map$membership <- droplevels(l_start_map$membership)
+
+# summarise data.
+l_start_map <- l_start_map %>%  
+  group_by_all() %>%  
+  count
+l_start_map$n <- (l_start_map$n)
+colnames(l_start_map) <- c("membership", "geometry", "Number of Ride")
+invisible(gc())
+
+# mapping start stations.
+l_start_map_plot <- tm_shape(shp = chicago) + 
+  tm_polygons(col = "gray") + 
+  tm_shape(l_start_map) + 
+  tm_bubbles(col = "membership", palette = c("#E4002B", "#41B6E6")  ,size = "Number of Ride") +
+  tm_layout(legend.outside = TRUE) +
+  tm_layout(legend.position = c("right", "bottom"), 
+            title= "Locations of End Stations", 
+            title.position = c("right", "top"))
+l_start_map_plot
+invisible(gc())
+
+# end station.
+# convert geospatial data from dbl format to geometry format.
+l_end_map <- lost_station[, c(1, 6, 7)]
+l_end_map <- st_as_sf(l_end_map, coords = c("end_station_lon", "end_station_lat"))
+l_end_map$membership <- recode_factor(l_end_map$membership, casual = "Customer",
+                                        member = "Subscriber")
+l_end_map$membership <- droplevels(l_end_map$membership)
+
+# summarise data.
+l_end_map <- l_end_map %>%  
+  group_by_all() %>%  
+  count
+l_end_map$n <- (l_end_map$n)
+colnames(l_end_map) <- c("membership", "geometry", "Number of Ride")
+invisible(gc())
+
+# mapping end stations
+l_end_map_plot <- tm_shape(shp = chicago) + 
+  tm_polygons(col = "gray") + 
+  tm_shape(l_end_map) + 
+  tm_bubbles(col = "membership", palette = c("#E4002B", "#41B6E6")  ,size = "Number of Ride") +
+  tm_layout(legend.outside = TRUE) +
+  tm_layout(legend.position = c("right", "bottom"), 
+            title= "Locations of End Stations", 
+            title.position = c("right", "top"))
+l_end_map_plot
+invisible(gc())
+```
+Result of this section: (1) most bike stations without station id are located
+within the northeast section of Chicago. Note that some start and end stations
+without id are located outside of Chicago, which may suggests that 1) the GPS
+coordinates and/or the shape files are not precise enough for mapping, or 2)
+Cyclistic may have planned to expanded services beyond Chicago at some point.
+
+### Filter out and/or replacing missing data
+The data set contains multiple types of missing and inconsistent data that need
+to be processed before analyses. Process the varying terminology throughout the
+eyars into consistent formats.
+```{r}
+# as we could not determine what membership "Dependent" refers to without consulting Cyclistic, those data will be excluded for this analysis.
+ride_data <- filter(ride_data, membership != "Dependent")
+
+# we can assume "customer" is the same as "casual" and "Subscriber" equals "member".
+# we will replace the membership descriptions by "Customer" and "Subscriber".
+ride_data$membership <- as.character(ride_data$membership)
+ride_data$membership[ride_data$membership == "casual"] <- "Customer"
+ride_data$membership[ride_data$membership == "member"] <- "Subscriber"
+```
+
+Remove unsalvageable missing data, which lack station id. This section could
+arguable be included for comparing trip duration and ride distance, but we have
+more than adequate data and therefore can afford to remove these questionable
+entries.
+```{r}
+# remove rows without station ids as unreliable data.
+ride_data <- ride_data[!is.na(ride_data$start_station_id) & !is.na(ride_data$end_station_id),]
+# remove rows without start and end datetime.
+ride_data <- ride_data[!is.na(ride_data$start_datetime) & !is.na(ride_data$end_datetime),]
+```
+
+Assuming the station ids have not been changed through out the years, we can use
+station ids to fill in missing geospatial coordinates before 2020.
+```{r}
+# create a dataframe for start stations and end stations.
+start_station_info <- ride_data %>% select(start_station_id, start_station_name, 
+                                           start_station_lon, start_station_lat) %>%
+  drop_na() %>%
+  distinct(start_station_id, .keep_all = TRUE)
+
+end_station_info <- ride_data %>% select(end_station_id, end_station_name, 
+                                         end_station_lon, end_station_lat)  %>%
+  drop_na() %>%
+  distinct(end_station_id, .keep_all = TRUE)
+
+# fill in longitude and latitude based on matching station ids.
+ride_data <- inner_join(ride_data, start_station_info, by = c("start_station_id", "start_station_name"))
+ride_data <- ride_data %>% select(-c(start_station_lon.x, start_station_lat.x)) %>% rename(
+  start_station_lon = start_station_lon.y,
+  start_station_lat = start_station_lat.y
+)
+
+ride_data$start_year <- year(ride_data$start_datetime)
+ride_data$start_month <- month(ride_data$start_datetime, label = TRUE, abbr = TRUE)
+ride_data$start_ym <- as_factor(format(ride_data$start_datetime, "%Y-%m"))
+
+ride_data <- inner_join(ride_data, end_station_info, by = c("end_station_id", "end_station_name"))
+ride_data <- ride_data %>% select(-c("csv_names", "end_station_lon.x", "end_station_lat.x")) %>% rename(
+  end_station_lon = end_station_lon.y,
+  end_station_lat = end_station_lat.y
+)
+```
+
+## Data exploration and analyses using R
+
+### Compute metrics for comparisons between subscribers and customers
+Compute days of week, trip duration, and ride distance.
+```{r}
+# get day of week from datetime column.
+ride_data$start_day <- wday(ride_data$start_datetime, label = TRUE, abbr = TRUE)
+ride_data$end_day <- wday(ride_data$end_datetime, label = TRUE, abbr = TRUE)
+
+# compute the trip duration 
+# some of the start time are later than the end time, which are likely input errors. We can take the absolute values of the difference between two dates to circumvent the potential erroneous inputs.
+ride_data$trip_duration <- as_hms(abs(difftime(ride_data$end_datetime, ride_data$start_datetime)))
+
+# compute the direct distance between start and end stations.
+ride_data$rdistance <- distGeo(ride_data[ , 9:10], ride_data[ , 14:15])
+
+
+# some users have trip duration of 0, which suggest they may be switching among bikes for functional or better fitting bikes.
+# we can filter out those rows as they don't necessary tell us the difference between subscribers and customers.
+ride_data <- ride_data %>%
+  filter(start_datetime != end_datetime)
+
+invisible(gc())
+```
+
+## Analyse the behavioural difference between subscribers and customers.
+### Number of ride as a primary metric 
+Looking at the number of rides from 2013 to 2023 as a whole.
+```{r}
+# counting the number of rides using the entire data set.
+num_ride_all <- data.frame(
+  membership = c("Subscriber", "Customer"),
+  number_of_rides = c(sum(ride_data$membership == "Subscriber", na.rm=TRUE),
+                     sum(ride_data$membership == "Customer", na.rm=TRUE))
+)
+kable(num_ride_all, style = "rmarkdown")
+
+p_num_ride_all <- ggplot(num_ride_all, aes(x = membership, y = number_of_rides, fill = membership)) + 
+  geom_bar(position="dodge", stat="identity") +
+  scale_y_continuous(labels = scales::label_number(scale_cut = cut_short_scale()), expand = c(0, 0), limits = c(0, NA)) +
+  xlab("Year") +
+  ylab("Number of Rides") +
+  ggtitle("Number of Rides by Subscribers and Customers (2013 - 2023)") +
+  scale_fill_manual(name = "membership", values = c("#41B6E6", "#E4002B")) + 
+  theme_classic() +
+  theme(plot.title = element_text(hjust = 0.5))
+p_num_ride_all
+
+invisible(gc())
+```
+Result of this section: (1) subscribers ride nearly twice as often as customers
+overall.
+
+Comparing the number of rides from 2013 to 2023 annually.
+```{r}
+# counting the number of rides annually.
+num_ride_year <- data.frame(
+  year = as.factor(c(2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023)),
+  subscriber = c(sum(ride_data$membership == "Subscriber" & ride_data$start_year == 2013, na.rm=TRUE),
+                 sum(ride_data$membership == "Subscriber" & ride_data$start_year == 2014, na.rm=TRUE),
+                 sum(ride_data$membership == "Subscriber" & ride_data$start_year == 2015, na.rm=TRUE),
+                 sum(ride_data$membership == "Subscriber" & ride_data$start_year == 2016, na.rm=TRUE),
+                 sum(ride_data$membership == "Subscriber" & ride_data$start_year == 2017, na.rm=TRUE),
+                 sum(ride_data$membership == "Subscriber" & ride_data$start_year == 2018, na.rm=TRUE),
+                 sum(ride_data$membership == "Subscriber" & ride_data$start_year == 2019, na.rm=TRUE),
+                 sum(ride_data$membership == "Subscriber" & ride_data$start_year == 2020, na.rm=TRUE),
+                 sum(ride_data$membership == "Subscriber" & ride_data$start_year == 2021, na.rm=TRUE),
+                 sum(ride_data$membership == "Subscriber" & ride_data$start_year == 2022, na.rm=TRUE),
+                 sum(ride_data$membership == "Subscriber" & ride_data$start_year == 2023, na.rm=TRUE)),
+  
+  customer = c(sum(ride_data$membership == "Customer" & ride_data$start_year == 2013, na.rm=TRUE),
+               sum(ride_data$membership == "Customer" & ride_data$start_year == 2014, na.rm=TRUE),
+               sum(ride_data$membership == "Customer" & ride_data$start_year == 2015, na.rm=TRUE),
+               sum(ride_data$membership == "Customer" & ride_data$start_year == 2016, na.rm=TRUE),
+               sum(ride_data$membership == "Customer" & ride_data$start_year == 2017, na.rm=TRUE),
+               sum(ride_data$membership == "Customer" & ride_data$start_year == 2018, na.rm=TRUE),
+               sum(ride_data$membership == "Customer" & ride_data$start_year == 2019, na.rm=TRUE),
+               sum(ride_data$membership == "Customer" & ride_data$start_year == 2020, na.rm=TRUE),
+               sum(ride_data$membership == "Customer" & ride_data$start_year == 2021, na.rm=TRUE),
+               sum(ride_data$membership == "Customer" & ride_data$start_year == 2022, na.rm=TRUE),
+               sum(ride_data$membership == "Customer" & ride_data$start_year == 2023, na.rm=TRUE))
+)
+
+num_ride_year <- melt(num_ride_year, id.vars = "year")
+colnames(num_ride_year) <- c("year", "membership", "number_of_rides")
+kable(num_ride_year, style = "rmarkdown")
+
+p_num_ride_year <- ggplot(num_ride_year, aes(x = year, y = number_of_rides, fill = membership)) + 
+  geom_bar(position="dodge", stat="identity") +
+  scale_y_continuous(labels = scales::label_number(scale_cut = cut_short_scale()), 
+                     expand = c(0, 0), limits = c(0, NA)) +
+  xlab("Year") +
+  ylab("Number of Rides") +
+  ggtitle("Number of Rides by Subscribers and Customers (annually 2013 - 2023)") +
+  scale_fill_manual(name = "membership", values = c("#E4002B", "#41B6E6")) + 
+  theme_classic() +
+  theme(plot.title = element_text(hjust = 0.5))
+p_num_ride_year
+
+invisible(gc())
+```
+Result of this section: (1) more rides are taken by subscribers than customers
+since 2013. (2) number of rides by subscribers dropped in 2020 during the
+COVID-19 pandemic but has recovered and increased in 2021 and 2022. (3) data
+from 2023 is limited and does not represent a decrease in number of rides (4)
+more rides by subscribers take place on Monday to Friday, which suggests
+subscribers may have been using Cyclistic service commuting to and from work.
+
+Comparing the number of rides by weekdays.
+```{r}
+num_ride_wday <- data.frame(
+  weekday = as.factor(c(rep("Mon", 2), rep("Tue", 2), rep("Wed", 2), rep("Thu", 2), rep("Fri", 2), rep("Sat", 2), rep("Sun", 2))),
+  membership = as.factor(c("Subscriber", "Customer")),
+  year_2013 = c(sum(ride_data$start_day == "Mon" & ride_data$start_year == 2013 & ride_data$membership == "Subscriber", na.rm=TRUE),
+                sum(ride_data$start_day == "Mon" & ride_data$start_year == 2013 & ride_data$membership == "Customer", na.rm=TRUE),
+                sum(ride_data$start_day == "Tue" & ride_data$start_year == 2013 & ride_data$membership == "Subscriber", na.rm=TRUE),
+                sum(ride_data$start_day == "Tue" & ride_data$start_year == 2013 & ride_data$membership == "Customer", na.rm=TRUE),
+                sum(ride_data$start_day == "Wed" & ride_data$start_year == 2013 & ride_data$membership == "Subscriber", na.rm=TRUE),
+                sum(ride_data$start_day == "Wed" & ride_data$start_year == 2013 & ride_data$membership == "Customer", na.rm=TRUE),
+                sum(ride_data$start_day == "Thu" & ride_data$start_year == 2013 & ride_data$membership == "Subscriber", na.rm=TRUE),
+                sum(ride_data$start_day == "Thu" & ride_data$start_year == 2013 & ride_data$membership == "Customer", na.rm=TRUE),
+                sum(ride_data$start_day == "Fri" & ride_data$start_year == 2013 & ride_data$membership == "Subscriber", na.rm=TRUE),
+                sum(ride_data$start_day == "Fri" & ride_data$start_year == 2013 & ride_data$membership == "Customer", na.rm=TRUE),
+                sum(ride_data$start_day == "Sat" & ride_data$start_year == 2013 & ride_data$membership == "Subscriber", na.rm=TRUE),
+                sum(ride_data$start_day == "Sat" & ride_data$start_year == 2013 & ride_data$membership == "Customer", na.rm=TRUE),
+                sum(ride_data$start_day == "Sun" & ride_data$start_year == 2013 & ride_data$membership == "Subscriber", na.rm=TRUE),
+                sum(ride_data$start_day == "Sun" & ride_data$start_year == 2013 & ride_data$membership == "Customer", na.rm=TRUE)),
+  
+  year_2014 = c(sum(ride_data$start_day == "Mon" & ride_data$start_year == 2014 & ride_data$membership == "Subscriber", na.rm=TRUE),
+                sum(ride_data$start_day == "Mon" & ride_data$start_year == 2014 & ride_data$membership == "Customer", na.rm=TRUE),
+                sum(ride_data$start_day == "Tue" & ride_data$start_year == 2014 & ride_data$membership == "Subscriber", na.rm=TRUE),
+                sum(ride_data$start_day == "Tue" & ride_data$start_year == 2014 & ride_data$membership == "Customer", na.rm=TRUE),
+                sum(ride_data$start_day == "Wed" & ride_data$start_year == 2014 & ride_data$membership == "Subscriber", na.rm=TRUE),
+                sum(ride_data$start_day == "Wed" & ride_data$start_year == 2014 & ride_data$membership == "Customer", na.rm=TRUE),
+                sum(ride_data$start_day == "Thu" & ride_data$start_year == 2014 & ride_data$membership == "Subscriber", na.rm=TRUE),
+                sum(ride_data$start_day == "Thu" & ride_data$start_year == 2014 & ride_data$membership == "Customer", na.rm=TRUE),
+                sum(ride_data$start_day == "Fri" & ride_data$start_year == 2014 & ride_data$membership == "Subscriber", na.rm=TRUE),
+                sum(ride_data$start_day == "Fri" & ride_data$start_year == 2014 & ride_data$membership == "Customer", na.rm=TRUE),
+                sum(ride_data$start_day == "Sat" & ride_data$start_year == 2014 & ride_data$membership == "Subscriber", na.rm=TRUE),
+                sum(ride_data$start_day == "Sat" & ride_data$start_year == 2014 & ride_data$membership == "Customer", na.rm=TRUE),
+                sum(ride_data$start_day == "Sun" & ride_data$start_year == 2014 & ride_data$membership == "Subscriber", na.rm=TRUE),
+                sum(ride_data$start_day == "Sun" & ride_data$start_year == 2014 & ride_data$membership == "Customer", na.rm=TRUE)),
+  
+  year_2015 = c(sum(ride_data$start_day == "Mon" & ride_data$start_year == 2015 & ride_data$membership == "Subscriber", na.rm=TRUE),
+                sum(ride_data$start_day == "Mon" & ride_data$start_year == 2015 & ride_data$membership == "Customer", na.rm=TRUE),
+                sum(ride_data$start_day == "Tue" & ride_data$start_year == 2015 & ride_data$membership == "Subscriber", na.rm=TRUE),
+                sum(ride_data$start_day == "Tue" & ride_data$start_year == 2015 & ride_data$membership == "Customer", na.rm=TRUE),
+                sum(ride_data$start_day == "Wed" & ride_data$start_year == 2015 & ride_data$membership == "Subscriber", na.rm=TRUE),
+                sum(ride_data$start_day == "Wed" & ride_data$start_year == 2015 & ride_data$membership == "Customer", na.rm=TRUE),
+                sum(ride_data$start_day == "Thu" & ride_data$start_year == 2015 & ride_data$membership == "Subscriber", na.rm=TRUE),
+                sum(ride_data$start_day == "Thu" & ride_data$start_year == 2015 & ride_data$membership == "Customer", na.rm=TRUE),
+                sum(ride_data$start_day == "Fri" & ride_data$start_year == 2015 & ride_data$membership == "Subscriber", na.rm=TRUE),
+                sum(ride_data$start_day == "Fri" & ride_data$start_year == 2015 & ride_data$membership == "Customer", na.rm=TRUE),
+                sum(ride_data$start_day == "Sat" & ride_data$start_year == 2015 & ride_data$membership == "Subscriber", na.rm=TRUE),
+                sum(ride_data$start_day == "Sat" & ride_data$start_year == 2015 & ride_data$membership == "Customer", na.rm=TRUE),
+                sum(ride_data$start_day == "Sun" & ride_data$start_year == 2015 & ride_data$membership == "Subscriber", na.rm=TRUE),
+                sum(ride_data$start_day == "Sun" & ride_data$start_year == 2015 & ride_data$membership == "Customer", na.rm=TRUE)),
+  
+  year_2016 = c(sum(ride_data$start_day == "Mon" & ride_data$start_year == 2016 & ride_data$membership == "Subscriber", na.rm=TRUE),
+                sum(ride_data$start_day == "Mon" & ride_data$start_year == 2016 & ride_data$membership == "Customer", na.rm=TRUE),
+                sum(ride_data$start_day == "Tue" & ride_data$start_year == 2016 & ride_data$membership == "Subscriber", na.rm=TRUE),
+                sum(ride_data$start_day == "Tue" & ride_data$start_year == 2016 & ride_data$membership == "Customer", na.rm=TRUE),
+                sum(ride_data$start_day == "Wed" & ride_data$start_year == 2016 & ride_data$membership == "Subscriber", na.rm=TRUE),
+                sum(ride_data$start_day == "Wed" & ride_data$start_year == 2016 & ride_data$membership == "Customer", na.rm=TRUE),
+                sum(ride_data$start_day == "Thu" & ride_data$start_year == 2016 & ride_data$membership == "Subscriber", na.rm=TRUE),
+                sum(ride_data$start_day == "Thu" & ride_data$start_year == 2016 & ride_data$membership == "Customer", na.rm=TRUE),
+                sum(ride_data$start_day == "Fri" & ride_data$start_year == 2016 & ride_data$membership == "Subscriber", na.rm=TRUE),
+                sum(ride_data$start_day == "Fri" & ride_data$start_year == 2016 & ride_data$membership == "Customer", na.rm=TRUE),
+                sum(ride_data$start_day == "Sat" & ride_data$start_year == 2016 & ride_data$membership == "Subscriber", na.rm=TRUE),
+                sum(ride_data$start_day == "Sat" & ride_data$start_year == 2016 & ride_data$membership == "Customer", na.rm=TRUE),
+                sum(ride_data$start_day == "Sun" & ride_data$start_year == 2016 & ride_data$membership == "Subscriber", na.rm=TRUE),
+                sum(ride_data$start_day == "Sun" & ride_data$start_year == 2016 & ride_data$membership == "Customer", na.rm=TRUE)),
+  
+  year_2017 = c(sum(ride_data$start_day == "Mon" & ride_data$start_year == 2017 & ride_data$membership == "Subscriber", na.rm=TRUE),
+                sum(ride_data$start_day == "Mon" & ride_data$start_year == 2017 & ride_data$membership == "Customer", na.rm=TRUE),
+                sum(ride_data$start_day == "Tue" & ride_data$start_year == 2017 & ride_data$membership == "Subscriber", na.rm=TRUE),
+                sum(ride_data$start_day == "Tue" & ride_data$start_year == 2017 & ride_data$membership == "Customer", na.rm=TRUE),
+                sum(ride_data$start_day == "Wed" & ride_data$start_year == 2017 & ride_data$membership == "Subscriber", na.rm=TRUE),
+                sum(ride_data$start_day == "Wed" & ride_data$start_year == 2017 & ride_data$membership == "Customer", na.rm=TRUE),
+                sum(ride_data$start_day == "Thu" & ride_data$start_year == 2017 & ride_data$membership == "Subscriber", na.rm=TRUE),
+                sum(ride_data$start_day == "Thu" & ride_data$start_year == 2017 & ride_data$membership == "Customer", na.rm=TRUE),
+                sum(ride_data$start_day == "Fri" & ride_data$start_year == 2017 & ride_data$membership == "Subscriber", na.rm=TRUE),
+                sum(ride_data$start_day == "Fri" & ride_data$start_year == 2017 & ride_data$membership == "Customer", na.rm=TRUE),
+                sum(ride_data$start_day == "Sat" & ride_data$start_year == 2017 & ride_data$membership == "Subscriber", na.rm=TRUE),
+                sum(ride_data$start_day == "Sat" & ride_data$start_year == 2017 & ride_data$membership == "Customer", na.rm=TRUE),
+                sum(ride_data$start_day == "Sun" & ride_data$start_year == 2017 & ride_data$membership == "Subscriber", na.rm=TRUE),
+                sum(ride_data$start_day == "Sun" & ride_data$start_year == 2017 & ride_data$membership == "Customer", na.rm=TRUE)),
+  
+  year_2018 = c(sum(ride_data$start_day == "Mon" & ride_data$start_year == 2018 & ride_data$membership == "Subscriber", na.rm=TRUE),
+                sum(ride_data$start_day == "Mon" & ride_data$start_year == 2018 & ride_data$membership == "Customer", na.rm=TRUE),
+                sum(ride_data$start_day == "Tue" & ride_data$start_year == 2018 & ride_data$membership == "Subscriber", na.rm=TRUE),
+                sum(ride_data$start_day == "Tue" & ride_data$start_year == 2018 & ride_data$membership == "Customer", na.rm=TRUE),
+                sum(ride_data$start_day == "Wed" & ride_data$start_year == 2018 & ride_data$membership == "Subscriber", na.rm=TRUE),
+                sum(ride_data$start_day == "Wed" & ride_data$start_year == 2018 & ride_data$membership == "Customer", na.rm=TRUE),
+                sum(ride_data$start_day == "Thu" & ride_data$start_year == 2018 & ride_data$membership == "Subscriber", na.rm=TRUE),
+                sum(ride_data$start_day == "Thu" & ride_data$start_year == 2018 & ride_data$membership == "Customer", na.rm=TRUE),
+                sum(ride_data$start_day == "Fri" & ride_data$start_year == 2018 & ride_data$membership == "Subscriber", na.rm=TRUE),
+                sum(ride_data$start_day == "Fri" & ride_data$start_year == 2018 & ride_data$membership == "Customer", na.rm=TRUE),
+                sum(ride_data$start_day == "Sat" & ride_data$start_year == 2018 & ride_data$membership == "Subscriber", na.rm=TRUE),
+                sum(ride_data$start_day == "Sat" & ride_data$start_year == 2018 & ride_data$membership == "Customer", na.rm=TRUE),
+                sum(ride_data$start_day == "Sun" & ride_data$start_year == 2018 & ride_data$membership == "Subscriber", na.rm=TRUE),
+                sum(ride_data$start_day == "Sun" & ride_data$start_year == 2018 & ride_data$membership == "Customer", na.rm=TRUE)),
+  
+  year_2019 = c(sum(ride_data$start_day == "Mon" & ride_data$start_year == 2019 & ride_data$membership == "Subscriber", na.rm=TRUE),
+                sum(ride_data$start_day == "Mon" & ride_data$start_year == 2019 & ride_data$membership == "Customer", na.rm=TRUE),
+                sum(ride_data$start_day == "Tue" & ride_data$start_year == 2019 & ride_data$membership == "Subscriber", na.rm=TRUE),
+                sum(ride_data$start_day == "Tue" & ride_data$start_year == 2019 & ride_data$membership == "Customer", na.rm=TRUE),
+                sum(ride_data$start_day == "Wed" & ride_data$start_year == 2019 & ride_data$membership == "Subscriber", na.rm=TRUE),
+                sum(ride_data$start_day == "Wed" & ride_data$start_year == 2019 & ride_data$membership == "Customer", na.rm=TRUE),
+                sum(ride_data$start_day == "Thu" & ride_data$start_year == 2019 & ride_data$membership == "Subscriber", na.rm=TRUE),
+                sum(ride_data$start_day == "Thu" & ride_data$start_year == 2019 & ride_data$membership == "Customer", na.rm=TRUE),
+                sum(ride_data$start_day == "Fri" & ride_data$start_year == 2019 & ride_data$membership == "Subscriber", na.rm=TRUE),
+                sum(ride_data$start_day == "Fri" & ride_data$start_year == 2019 & ride_data$membership == "Customer", na.rm=TRUE),
+                sum(ride_data$start_day == "Sat" & ride_data$start_year == 2019 & ride_data$membership == "Subscriber", na.rm=TRUE),
+                sum(ride_data$start_day == "Sat" & ride_data$start_year == 2019 & ride_data$membership == "Customer", na.rm=TRUE),
+                sum(ride_data$start_day == "Sun" & ride_data$start_year == 2019 & ride_data$membership == "Subscriber", na.rm=TRUE),
+                sum(ride_data$start_day == "Sun" & ride_data$start_year == 2019 & ride_data$membership == "Customer", na.rm=TRUE)),
+  
+  year_2020 = c(sum(ride_data$start_day == "Mon" & ride_data$start_year == 2020 & ride_data$membership == "Subscriber", na.rm=TRUE),
+                sum(ride_data$start_day == "Mon" & ride_data$start_year == 2020 & ride_data$membership == "Customer", na.rm=TRUE),
+                sum(ride_data$start_day == "Tue" & ride_data$start_year == 2020 & ride_data$membership == "Subscriber", na.rm=TRUE),
+                sum(ride_data$start_day == "Tue" & ride_data$start_year == 2020 & ride_data$membership == "Customer", na.rm=TRUE),
+                sum(ride_data$start_day == "Wed" & ride_data$start_year == 2020 & ride_data$membership == "Subscriber", na.rm=TRUE),
+                sum(ride_data$start_day == "Wed" & ride_data$start_year == 2020 & ride_data$membership == "Customer", na.rm=TRUE),
+                sum(ride_data$start_day == "Thu" & ride_data$start_year == 2020 & ride_data$membership == "Subscriber", na.rm=TRUE),
+                sum(ride_data$start_day == "Thu" & ride_data$start_year == 2020 & ride_data$membership == "Customer", na.rm=TRUE),
+                sum(ride_data$start_day == "Fri" & ride_data$start_year == 2020 & ride_data$membership == "Subscriber", na.rm=TRUE),
+                sum(ride_data$start_day == "Fri" & ride_data$start_year == 2020 & ride_data$membership == "Customer", na.rm=TRUE),
+                sum(ride_data$start_day == "Sat" & ride_data$start_year == 2020 & ride_data$membership == "Subscriber", na.rm=TRUE),
+                sum(ride_data$start_day == "Sat" & ride_data$start_year == 2020 & ride_data$membership == "Customer", na.rm=TRUE),
+                sum(ride_data$start_day == "Sun" & ride_data$start_year == 2020 & ride_data$membership == "Subscriber", na.rm=TRUE),
+                sum(ride_data$start_day == "Sun" & ride_data$start_year == 2020 & ride_data$membership == "Customer", na.rm=TRUE)),
+  
+  year_2021 = c(sum(ride_data$start_day == "Mon" & ride_data$start_year == 2021 & ride_data$membership == "Subscriber", na.rm=TRUE),
+                sum(ride_data$start_day == "Mon" & ride_data$start_year == 2021 & ride_data$membership == "Customer", na.rm=TRUE),
+                sum(ride_data$start_day == "Tue" & ride_data$start_year == 2021 & ride_data$membership == "Subscriber", na.rm=TRUE),
+                sum(ride_data$start_day == "Tue" & ride_data$start_year == 2021 & ride_data$membership == "Customer", na.rm=TRUE),
+                sum(ride_data$start_day == "Wed" & ride_data$start_year == 2021 & ride_data$membership == "Subscriber", na.rm=TRUE),
+                sum(ride_data$start_day == "Wed" & ride_data$start_year == 2021 & ride_data$membership == "Customer", na.rm=TRUE),
+                sum(ride_data$start_day == "Thu" & ride_data$start_year == 2021 & ride_data$membership == "Subscriber", na.rm=TRUE),
+                sum(ride_data$start_day == "Thu" & ride_data$start_year == 2021 & ride_data$membership == "Customer", na.rm=TRUE),
+                sum(ride_data$start_day == "Fri" & ride_data$start_year == 2021 & ride_data$membership == "Subscriber", na.rm=TRUE),
+                sum(ride_data$start_day == "Fri" & ride_data$start_year == 2021 & ride_data$membership == "Customer", na.rm=TRUE),
+                sum(ride_data$start_day == "Sat" & ride_data$start_year == 2021 & ride_data$membership == "Subscriber", na.rm=TRUE),
+                sum(ride_data$start_day == "Sat" & ride_data$start_year == 2021 & ride_data$membership == "Customer", na.rm=TRUE),
+                sum(ride_data$start_day == "Sun" & ride_data$start_year == 2021 & ride_data$membership == "Subscriber", na.rm=TRUE),
+                sum(ride_data$start_day == "Sun" & ride_data$start_year == 2021 & ride_data$membership == "Customer", na.rm=TRUE)),
+  
+  year_2022 = c(sum(ride_data$start_day == "Mon" & ride_data$start_year == 2022 & ride_data$membership == "Subscriber", na.rm=TRUE),
+                sum(ride_data$start_day == "Mon" & ride_data$start_year == 2022 & ride_data$membership == "Customer", na.rm=TRUE),
+                sum(ride_data$start_day == "Tue" & ride_data$start_year == 2022 & ride_data$membership == "Subscriber", na.rm=TRUE),
+                sum(ride_data$start_day == "Tue" & ride_data$start_year == 2022 & ride_data$membership == "Customer", na.rm=TRUE),
+                sum(ride_data$start_day == "Wed" & ride_data$start_year == 2022 & ride_data$membership == "Subscriber", na.rm=TRUE),
+                sum(ride_data$start_day == "Wed" & ride_data$start_year == 2022 & ride_data$membership == "Customer", na.rm=TRUE),
+                sum(ride_data$start_day == "Thu" & ride_data$start_year == 2022 & ride_data$membership == "Subscriber", na.rm=TRUE),
+                sum(ride_data$start_day == "Thu" & ride_data$start_year == 2022 & ride_data$membership == "Customer", na.rm=TRUE),
+                sum(ride_data$start_day == "Fri" & ride_data$start_year == 2022 & ride_data$membership == "Subscriber", na.rm=TRUE),
+                sum(ride_data$start_day == "Fri" & ride_data$start_year == 2022 & ride_data$membership == "Customer", na.rm=TRUE),
+                sum(ride_data$start_day == "Sat" & ride_data$start_year == 2022 & ride_data$membership == "Subscriber", na.rm=TRUE),
+                sum(ride_data$start_day == "Sat" & ride_data$start_year == 2022 & ride_data$membership == "Customer", na.rm=TRUE),
+                sum(ride_data$start_day == "Sun" & ride_data$start_year == 2022 & ride_data$membership == "Subscriber", na.rm=TRUE),
+                sum(ride_data$start_day == "Sun" & ride_data$start_year == 2022 & ride_data$membership == "Customer", na.rm=TRUE)),
+  
+  year_2023 = c(sum(ride_data$start_day == "Mon" & ride_data$start_year == 2023 & ride_data$membership == "Subscriber", na.rm=TRUE),
+                sum(ride_data$start_day == "Mon" & ride_data$start_year == 2023 & ride_data$membership == "Customer", na.rm=TRUE),
+                sum(ride_data$start_day == "Tue" & ride_data$start_year == 2023 & ride_data$membership == "Subscriber", na.rm=TRUE),
+                sum(ride_data$start_day == "Tue" & ride_data$start_year == 2023 & ride_data$membership == "Customer", na.rm=TRUE),
+                sum(ride_data$start_day == "Wed" & ride_data$start_year == 2023 & ride_data$membership == "Subscriber", na.rm=TRUE),
+                sum(ride_data$start_day == "Wed" & ride_data$start_year == 2023 & ride_data$membership == "Customer", na.rm=TRUE),
+                sum(ride_data$start_day == "Thu" & ride_data$start_year == 2023 & ride_data$membership == "Subscriber", na.rm=TRUE),
+                sum(ride_data$start_day == "Thu" & ride_data$start_year == 2023 & ride_data$membership == "Customer", na.rm=TRUE),
+                sum(ride_data$start_day == "Fri" & ride_data$start_year == 2023 & ride_data$membership == "Subscriber", na.rm=TRUE),
+                sum(ride_data$start_day == "Fri" & ride_data$start_year == 2023 & ride_data$membership == "Customer", na.rm=TRUE),
+                sum(ride_data$start_day == "Sat" & ride_data$start_year == 2023 & ride_data$membership == "Subscriber", na.rm=TRUE),
+                sum(ride_data$start_day == "Sat" & ride_data$start_year == 2023 & ride_data$membership == "Customer", na.rm=TRUE),
+                sum(ride_data$start_day == "Sun" & ride_data$start_year == 2023 & ride_data$membership == "Subscriber", na.rm=TRUE),
+                sum(ride_data$start_day == "Sun" & ride_data$start_year == 2023 & ride_data$membership == "Customer", na.rm=TRUE))
+)
+kable(num_ride_wday, style = "rmarkdown")
+
+num_ride_wday <- melt(num_ride_wday, id.vars = c("weekday", "membership"))
+p_num_ride_wday <- ggplot(num_ride_wday, aes(x = factor(weekday, level = c("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")), y = value, fill = membership)) + 
+  geom_bar(position="dodge", stat="identity") +
+  scale_y_continuous(labels = scales::label_number(scale_cut = cut_short_scale()), expand = c(0, 0), limits = c(0, NA)) +
+  xlab("Weekdays") +
+  ylab("Number of Rides") +
+  ggtitle("Number of Rides by Subscribers and Customers (daily Monday - Sunday)") +
+  scale_fill_manual(name = "membership", values = c("#41B6E6", "#E4002B")) + 
+  theme_classic() +
+  theme(plot.title = element_text(hjust = 0.5))
+p_num_ride_wday
+
+invisible(gc())
+```
+Result of this section: (1) From Monday through Thursday, the number of rides by
+subscribers are consistently more than those by customers. The number of ride by
+customers increase on Friday but still less than those by subscribers. On the
+weekends, however, subscribers consistently have less rides than customers.
+
+### Bike type as a primary metric
+Comparing the number of rides by bike type.
+```{r}
+# counting the number of rides based on bike type, which is only available from 2020 to 2023.
+num_ride_bike_type <- data.frame(
+  bike_type = as.factor(c("docked_bike", "electric_bike", "classic_bike")),
+  subscriber = c(sum(ride_data$membership == "Subscriber" & ride_data$bike_type == "docked_bike", na.rm=TRUE),
+                 sum(ride_data$membership == "Subscriber" & ride_data$bike_type == "electric_bike", na.rm=TRUE),
+                 sum(ride_data$membership == "Subscriber" & ride_data$bike_type == "classic_bike", na.rm=TRUE)),
+  
+  customer = c(sum(ride_data$membership == "Customer" & ride_data$bike_type == "docked_bike", na.rm=TRUE),
+               sum(ride_data$membership == "Customer" & ride_data$bike_type == "electric_bike", na.rm=TRUE),
+               sum(ride_data$membership == "Customer" & ride_data$bike_type == "classic_bike", na.rm=TRUE))
+)
+num_ride_bike_type <- melt(num_ride_bike_type, id.vars = "bike_type")
+colnames(num_ride_bike_type) <- c("bike_type", "membership", "number_of_rides")
+kable(num_ride_bike_type, style = "rmarkdown")
+
+p_num_ride_bike_type <- ggplot(num_ride_bike_type, aes(x = bike_type, y = number_of_rides, fill = membership)) + 
+  geom_bar(position="dodge", stat="identity") +
+  xlab("Bike Type") +
+  ylab("Number of Ride") +
+  ggtitle("Types of Bikes Preferred by Subscribers and Customers") +
+  scale_y_continuous(labels = scales::label_number(scale_cut = cut_short_scale()), expand = c(0, 0), limits = c(0, NA)) +
+  scale_fill_manual(name = "membership", values = c("#E4002B", "#41B6E6")) + 
+  theme_classic() +
+  theme(plot.title = element_text(hjust = 0.5))
+p_num_ride_bike_type
+
+invisible(gc())
+```
+Result of this section: (1) customers use electric bikes most often but the
+difference is not substantial. (2) subscribers prefer classic bike over electric
+bike. (3) the low number of documented docked bike may be biased as they are
+documented only between January to July 2020.
+
+### Trip duration as a primary metric
+Compute the descriptive statistics using the data from 2013 to 2023 as a whole.
+```{r}
+# compute the max, min, mean, median, and mode of trip duration for subscribers and customers 
+tri_du_all <- data.frame(
+  membership = c("Subscriber", "Customer"),
+  max_duration = c(seconds_to_period(max(ride_data$trip_duration[ride_data$membership == "Subscriber"])),
+                   seconds_to_period(max(ride_data$trip_duration[ride_data$membership == "Customer"]))),
+  
+  min_duration = c(seconds_to_period(min(ride_data$trip_duration[ride_data$membership == "Subscriber"])),
+                   seconds_to_period(min(ride_data$trip_duration[ride_data$membership == "Customer"]))),
+  
+  mean_duration = c(round(seconds_to_period(mean(ride_data$trip_duration[ride_data$membership == "Subscriber"])), digits = 2),
+                    round(seconds_to_period(mean(ride_data$trip_duration[ride_data$membership == "Customer"])), digits = 2)),
+  
+  median_duration = c(seconds_to_period(median(ride_data$trip_duration[ride_data$membership == "Subscriber"])),
+                      seconds_to_period(median(ride_data$trip_duration[ride_data$membership == "Customer"]))),
+  
+  standard_deviantion = c(sd(ride_data$trip_duration[ride_data$membership == "Subscriber"]),
+                          sd(ride_data$trip_duration[ride_data$membership == "Customer"]))
+)
+kable(tri_du_all, style = "rmarkdown")
+# from the table, subscribers and customers have decent contrasts for means, median, and sd.
+
+# create boxplot to visualise the descriptive statistics
+p_tri_du_all_box <- ggplot(ride_data, aes(x =  membership, y = trip_duration, colour = membership, fill = membership)) + 
+  geom_boxplot(stat = "boxplot", alpha = 0.3) +
+  scale_y_time(limits = quantile(ride_data$trip_duration, c(0.1, 0.9))) +
+  xlab("Membership") +
+  ylab("Trip Duration") +
+  ggtitle("Trip Duration by Subscribers and Customers") +
+  scale_colour_manual(name = "membership", values = c("#41B6E6", "#E4002B")) + 
+  scale_fill_manual(name = "membership", values = c("#41B6E6", "#E4002B")) + 
+  theme_classic() +
+  theme(plot.title = element_text(hjust = 0.5))
+p_tri_du_all_box
+
+# as the values beyond quantiles are cut off for better visuals on the boxplot, a scatter plot is created as a supplement.
+p_tri_du_all_point <- ggplot(ride_data, aes(x =  membership, y = trip_duration, colour = membership)) + 
+  geom_jitter() +
+  scale_y_time(expand = c(0, 0), limits = c(0, NA)) +
+  xlab("Membership") +
+  ylab("Trip Duration") +
+  ggtitle("Trip Duration by Subscribers and Customers") +
+  scale_colour_manual(name = "membership", values = c("#41B6E6", "#E4002B")) + 
+  theme_classic() +
+  theme(plot.title = element_text(hjust = 0.5))
+p_tri_du_all_point
+
+invisible(gc())
+```
+Result of this section: (1) mean and median of trip duration are both lower for
+subscribers than customers.
+
+Using statistic tests to examine whether the observed difference between
+subscribers and customers is significant. A t-test is not performed because data
+is non-normally distributed. As an alternative, we will perform a non-parametric
+U-test that does not rely on sample normality.
+```{r}
+# examine whether the entire data set is normally distributed.
+qqnorm(ride_data$trip_duration[ride_data$membership == "Subscriber"])
+qqnorm(ride_data$trip_duration[ride_data$membership == "Customer"])
+
+# as the data is non-normally distributed, we use a Two-sample Mann–Whitney U test from the coin package.
+# normality may not be necessary as real-world data tends to be non-normal as the sample size becomes huge.
+# convert the datetime format to dbl.
+u_test_tri_du_all <- ride_data[,c(8,18)]
+u_test_tri_du_all$membership <- as.factor(u_test_tri_du_all$membership)
+u_test_tri_du_all$trip_duration <- as.numeric(u_test_tri_du_all$trip_duration)
+u_test_tri_du_all_result <- coin :: wilcox_test(trip_duration ~ membership, data = u_test_tri_du_all, distribution = "approximate")
+u_test_tri_du_all_result
+invisible(gc())
+```
+Result of this section: (1) p-value \< 1e-04. The mean trip duration between
+subscribers and customers differ significantly!
+
+Compute the descriptive statistics from 2013 to 2023 annually.
+```{r}
+tri_du_year <- data.frame(
+  year = c(rep(2013, 2), rep(2014, 2), rep(2015, 2), rep(2016, 2), rep(2017, 2), rep(2018, 2),
+           rep(2019, 2), rep(2020, 2), rep(2021, 2), rep(2022, 2), rep(2023, 2)),
+  membership = c("Subscriber", "Customer"),
+  max_duration = c(seconds_to_period(max(ride_data$trip_duration[ride_data$membership == "Subscriber" & ride_data$start_year == 2013])),
+                   seconds_to_period(max(ride_data$trip_duration[ride_data$membership == "Customer" & ride_data$start_year == 2013])),
+                   seconds_to_period(max(ride_data$trip_duration[ride_data$membership == "Subscriber" & ride_data$start_year == 2014])),
+                   seconds_to_period(max(ride_data$trip_duration[ride_data$membership == "Customer" & ride_data$start_year == 2014])),
+                   seconds_to_period(max(ride_data$trip_duration[ride_data$membership == "Subscriber" & ride_data$start_year == 2015])),
+                   seconds_to_period(max(ride_data$trip_duration[ride_data$membership == "Customer" & ride_data$start_year == 2015])),
+                   seconds_to_period(max(ride_data$trip_duration[ride_data$membership == "Subscriber" & ride_data$start_year == 2016])),
+                   seconds_to_period(max(ride_data$trip_duration[ride_data$membership == "Customer" & ride_data$start_year == 2016])),
+                   seconds_to_period(max(ride_data$trip_duration[ride_data$membership == "Subscriber" & ride_data$start_year == 2017])),
+                   seconds_to_period(max(ride_data$trip_duration[ride_data$membership == "Customer" & ride_data$start_year == 2017])),
+                   seconds_to_period(max(ride_data$trip_duration[ride_data$membership == "Subscriber" & ride_data$start_year == 2018])),
+                   seconds_to_period(max(ride_data$trip_duration[ride_data$membership == "Customer" & ride_data$start_year == 2018])),
+                   seconds_to_period(max(ride_data$trip_duration[ride_data$membership == "Subscriber" & ride_data$start_year == 2019])),
+                   seconds_to_period(max(ride_data$trip_duration[ride_data$membership == "Customer" & ride_data$start_year == 2019])),
+                   seconds_to_period(max(ride_data$trip_duration[ride_data$membership == "Subscriber" & ride_data$start_year == 2020])),
+                   seconds_to_period(max(ride_data$trip_duration[ride_data$membership == "Customer" & ride_data$start_year == 2020])),
+                   seconds_to_period(max(ride_data$trip_duration[ride_data$membership == "Subscriber" & ride_data$start_year == 2021])),
+                   seconds_to_period(max(ride_data$trip_duration[ride_data$membership == "Customer" & ride_data$start_year == 2021])),
+                   seconds_to_period(max(ride_data$trip_duration[ride_data$membership == "Subscriber" & ride_data$start_year == 2022])),
+                   seconds_to_period(max(ride_data$trip_duration[ride_data$membership == "Customer" & ride_data$start_year == 2022])),
+                   seconds_to_period(max(ride_data$trip_duration[ride_data$membership == "Subscriber" & ride_data$start_year == 2023])),
+                   seconds_to_period(max(ride_data$trip_duration[ride_data$membership == "Customer" & ride_data$start_year == 2023]))),
+  
+  min_duration = c(seconds_to_period(min(ride_data$trip_duration[ride_data$membership == "Subscriber" & ride_data$start_year == 2013])),
+                   seconds_to_period(min(ride_data$trip_duration[ride_data$membership == "Customer" & ride_data$start_year == 2013])),
+                   seconds_to_period(min(ride_data$trip_duration[ride_data$membership == "Subscriber" & ride_data$start_year == 2014])),
+                   seconds_to_period(min(ride_data$trip_duration[ride_data$membership == "Customer" & ride_data$start_year == 2014])),
+                   seconds_to_period(min(ride_data$trip_duration[ride_data$membership == "Subscriber" & ride_data$start_year == 2015])),
+                   seconds_to_period(min(ride_data$trip_duration[ride_data$membership == "Customer" & ride_data$start_year == 2015])),
+                   seconds_to_period(min(ride_data$trip_duration[ride_data$membership == "Subscriber" & ride_data$start_year == 2016])),
+                   seconds_to_period(min(ride_data$trip_duration[ride_data$membership == "Customer" & ride_data$start_year == 2016])),
+                   seconds_to_period(min(ride_data$trip_duration[ride_data$membership == "Subscriber" & ride_data$start_year == 2017])),
+                   seconds_to_period(min(ride_data$trip_duration[ride_data$membership == "Customer" & ride_data$start_year == 2017])),
+                   seconds_to_period(min(ride_data$trip_duration[ride_data$membership == "Subscriber" & ride_data$start_year == 2018])),
+                   seconds_to_period(min(ride_data$trip_duration[ride_data$membership == "Customer" & ride_data$start_year == 2018])),
+                   seconds_to_period(min(ride_data$trip_duration[ride_data$membership == "Subscriber" & ride_data$start_year == 2019])),
+                   seconds_to_period(min(ride_data$trip_duration[ride_data$membership == "Customer" & ride_data$start_year == 2019])),
+                   seconds_to_period(min(ride_data$trip_duration[ride_data$membership == "Subscriber" & ride_data$start_year == 2020])),
+                   seconds_to_period(min(ride_data$trip_duration[ride_data$membership == "Customer" & ride_data$start_year == 2020])),
+                   seconds_to_period(min(ride_data$trip_duration[ride_data$membership == "Subscriber" & ride_data$start_year == 2021])),
+                   seconds_to_period(min(ride_data$trip_duration[ride_data$membership == "Customer" & ride_data$start_year == 2021])),
+                   seconds_to_period(min(ride_data$trip_duration[ride_data$membership == "Subscriber" & ride_data$start_year == 2022])),
+                   seconds_to_period(min(ride_data$trip_duration[ride_data$membership == "Customer" & ride_data$start_year == 2022])),
+                   seconds_to_period(min(ride_data$trip_duration[ride_data$membership == "Subscriber" & ride_data$start_year == 2023])),
+                   seconds_to_period(min(ride_data$trip_duration[ride_data$membership == "Customer" & ride_data$start_year == 2023]))),
+  
+  mean_duration = c(round(seconds_to_period(mean(ride_data$trip_duration[ride_data$membership == "Subscriber" & ride_data$start_year == 2013])), digits = 2),
+                    round(seconds_to_period(mean(ride_data$trip_duration[ride_data$membership == "Customer" & ride_data$start_year == 2013])), digits = 2),
+                    round(seconds_to_period(mean(ride_data$trip_duration[ride_data$membership == "Subscriber" & ride_data$start_year == 2014])), digits = 2),
+                    round(seconds_to_period(mean(ride_data$trip_duration[ride_data$membership == "Customer" & ride_data$start_year == 2014])), digits = 2),
+                    round(seconds_to_period(mean(ride_data$trip_duration[ride_data$membership == "Subscriber" & ride_data$start_year == 2015])), digits = 2),
+                    round(seconds_to_period(mean(ride_data$trip_duration[ride_data$membership == "Customer" & ride_data$start_year == 2015])), digits = 2),
+                    round(seconds_to_period(mean(ride_data$trip_duration[ride_data$membership == "Subscriber" & ride_data$start_year == 2016])), digits = 2),
+                    round(seconds_to_period(mean(ride_data$trip_duration[ride_data$membership == "Customer" & ride_data$start_year == 2016])), digits = 2),
+                    round(seconds_to_period(mean(ride_data$trip_duration[ride_data$membership == "Subscriber" & ride_data$start_year == 2017])), digits = 2),
+                    round(seconds_to_period(mean(ride_data$trip_duration[ride_data$membership == "Customer" & ride_data$start_year == 2017])), digits = 2),
+                    round(seconds_to_period(mean(ride_data$trip_duration[ride_data$membership == "Subscriber" & ride_data$start_year == 2018])), digits = 2),
+                    round(seconds_to_period(mean(ride_data$trip_duration[ride_data$membership == "Customer" & ride_data$start_year == 2018])), digits = 2),
+                    round(seconds_to_period(mean(ride_data$trip_duration[ride_data$membership == "Subscriber" & ride_data$start_year == 2019])), digits = 2),
+                    round(seconds_to_period(mean(ride_data$trip_duration[ride_data$membership == "Customer" & ride_data$start_year == 2019])), digits = 2),
+                    round(seconds_to_period(mean(ride_data$trip_duration[ride_data$membership == "Subscriber" & ride_data$start_year == 2020])), digits = 2),
+                    round(seconds_to_period(mean(ride_data$trip_duration[ride_data$membership == "Customer" & ride_data$start_year == 2020])), digits = 2),
+                    round(seconds_to_period(mean(ride_data$trip_duration[ride_data$membership == "Subscriber" & ride_data$start_year == 2021])), digits = 2),
+                    round(seconds_to_period(mean(ride_data$trip_duration[ride_data$membership == "Customer" & ride_data$start_year == 2021])), digits = 2),
+                    round(seconds_to_period(mean(ride_data$trip_duration[ride_data$membership == "Subscriber" & ride_data$start_year == 2022])), digits = 2),
+                    round(seconds_to_period(mean(ride_data$trip_duration[ride_data$membership == "Customer" & ride_data$start_year == 2022])), digits = 2),
+                    round(seconds_to_period(mean(ride_data$trip_duration[ride_data$membership == "Subscriber" & ride_data$start_year == 2023])), digits = 2),
+                    round(seconds_to_period(mean(ride_data$trip_duration[ride_data$membership == "Customer" & ride_data$start_year == 2023])), digits = 2)),
+  
+  median_duration = c(seconds_to_period(median(ride_data$trip_duration[ride_data$membership == "Subscriber" & ride_data$start_year == 2013])),
+                      seconds_to_period(median(ride_data$trip_duration[ride_data$membership == "Customer" & ride_data$start_year == 2013])),
+                      seconds_to_period(median(ride_data$trip_duration[ride_data$membership == "Subscriber" & ride_data$start_year == 2014])),
+                      seconds_to_period(median(ride_data$trip_duration[ride_data$membership == "Customer" & ride_data$start_year == 2014])),
+                      seconds_to_period(median(ride_data$trip_duration[ride_data$membership == "Subscriber" & ride_data$start_year == 2015])),
+                      seconds_to_period(median(ride_data$trip_duration[ride_data$membership == "Customer" & ride_data$start_year == 2015])),
+                      seconds_to_period(median(ride_data$trip_duration[ride_data$membership == "Subscriber" & ride_data$start_year == 2016])),
+                      seconds_to_period(median(ride_data$trip_duration[ride_data$membership == "Customer" & ride_data$start_year == 2016])),
+                      seconds_to_period(median(ride_data$trip_duration[ride_data$membership == "Subscriber" & ride_data$start_year == 2017])),
+                      seconds_to_period(median(ride_data$trip_duration[ride_data$membership == "Customer" & ride_data$start_year == 2017])),
+                      seconds_to_period(median(ride_data$trip_duration[ride_data$membership == "Subscriber" & ride_data$start_year == 2018])),
+                      seconds_to_period(median(ride_data$trip_duration[ride_data$membership == "Customer" & ride_data$start_year == 2018])),
+                      seconds_to_period(median(ride_data$trip_duration[ride_data$membership == "Subscriber" & ride_data$start_year == 2019])),
+                      seconds_to_period(median(ride_data$trip_duration[ride_data$membership == "Customer" & ride_data$start_year == 2019])),
+                      seconds_to_period(median(ride_data$trip_duration[ride_data$membership == "Subscriber" & ride_data$start_year == 2020])),
+                      seconds_to_period(median(ride_data$trip_duration[ride_data$membership == "Customer" & ride_data$start_year == 2020])),
+                      seconds_to_period(median(ride_data$trip_duration[ride_data$membership == "Subscriber" & ride_data$start_year == 2021])),
+                      seconds_to_period(median(ride_data$trip_duration[ride_data$membership == "Customer" & ride_data$start_year == 2021])),
+                      seconds_to_period(median(ride_data$trip_duration[ride_data$membership == "Subscriber" & ride_data$start_year == 2022])),
+                      seconds_to_period(median(ride_data$trip_duration[ride_data$membership == "Customer" & ride_data$start_year == 2022])),
+                      seconds_to_period(median(ride_data$trip_duration[ride_data$membership == "Subscriber" & ride_data$start_year == 2023])),
+                      seconds_to_period(median(ride_data$trip_duration[ride_data$membership == "Customer" & ride_data$start_year == 2023]))),
+  
+  standard_deviantion = c(sd(ride_data$trip_duration[ride_data$membership == "Subscriber" & ride_data$start_year == 2013]),
+                          sd(ride_data$trip_duration[ride_data$membership == "Customer" & ride_data$start_year == 2013]),
+                          sd(ride_data$trip_duration[ride_data$membership == "Subscriber" & ride_data$start_year == 2014]),
+                          sd(ride_data$trip_duration[ride_data$membership == "Customer" & ride_data$start_year == 2014]),
+                          sd(ride_data$trip_duration[ride_data$membership == "Subscriber" & ride_data$start_year == 2015]),
+                          sd(ride_data$trip_duration[ride_data$membership == "Customer" & ride_data$start_year == 2015]),
+                          sd(ride_data$trip_duration[ride_data$membership == "Subscriber" & ride_data$start_year == 2016]),
+                          sd(ride_data$trip_duration[ride_data$membership == "Customer" & ride_data$start_year == 2016]),
+                          sd(ride_data$trip_duration[ride_data$membership == "Subscriber" & ride_data$start_year == 2017]),
+                          sd(ride_data$trip_duration[ride_data$membership == "Customer" & ride_data$start_year == 2017]),
+                          sd(ride_data$trip_duration[ride_data$membership == "Subscriber" & ride_data$start_year == 2018]),
+                          sd(ride_data$trip_duration[ride_data$membership == "Customer" & ride_data$start_year == 2018]),
+                          sd(ride_data$trip_duration[ride_data$membership == "Subscriber" & ride_data$start_year == 2019]),
+                          sd(ride_data$trip_duration[ride_data$membership == "Customer" & ride_data$start_year == 2019]),
+                          sd(ride_data$trip_duration[ride_data$membership == "Subscriber" & ride_data$start_year == 2020]),
+                          sd(ride_data$trip_duration[ride_data$membership == "Customer" & ride_data$start_year == 2020]),
+                          sd(ride_data$trip_duration[ride_data$membership == "Subscriber" & ride_data$start_year == 2021]),
+                          sd(ride_data$trip_duration[ride_data$membership == "Customer" & ride_data$start_year == 2021]),
+                          sd(ride_data$trip_duration[ride_data$membership == "Subscriber" & ride_data$start_year == 2022]),
+                          sd(ride_data$trip_duration[ride_data$membership == "Customer" & ride_data$start_year == 2022]),
+                          sd(ride_data$trip_duration[ride_data$membership == "Subscriber" & ride_data$start_year == 2023]),
+                          sd(ride_data$trip_duration[ride_data$membership == "Customer" & ride_data$start_year == 2023]))
+)
+kable(tri_du_year, style = "rmarkdown")
+
+# visualise the trip durations as scatter plots organised by years
+# create a boxplot to compare the mean differences from 2013 to 2023.
+p_tri_du_year_box <- ggplot(ride_data, aes(x =  as_factor(start_year), y = trip_duration, colour = membership, fill = membership)) + 
+  geom_boxplot(stat = "boxplot", alpha = 0.3) +
+  scale_y_time(limits = quantile(ride_data$trip_duration, c(0.1, 0.9))) +
+  xlab("Year") +
+  ylab("Trip Duration") +
+  ggtitle("Trip Duration by Subscribers and Customers (annually 2013 - 2023)") +
+  scale_colour_manual(name = "membership", values = c("#41B6E6", "#E4002B")) + 
+  scale_fill_manual(name = "membership", values = c("#41B6E6", "#E4002B")) + 
+  theme_classic() +
+  theme(plot.title = element_text(hjust = 0.5))
+p_tri_du_year_box
+
+# scatter points to visualise the entire data set.
+ride_data$membership <- as.factor(ride_data$membership)
+p_tri_du_point_year <- ggplot(ride_data, aes(x =  start_year, y = trip_duration, colour = membership)) + 
+  geom_jitter() +
+  scale_y_time(expand = c(0, 0), limits = c(0, NA)) +
+  xlab("Year") +
+  ylab("Trip Duration") +
+  ggtitle("Trip Duration by Subscribers and Customers (annually 2013 - 2023)") +
+  scale_colour_manual(name = "membership", values = c("#41B6E6", "#E4002B")) + 
+  theme_classic() +
+  theme(plot.title = element_text(hjust = 0.5))
+p_tri_du_point_year
+invisible(gc())
+
+# make a line plot to show changes from 2013 to 2023 explicitly.
+tri_du_year <- ride_data %>% 
+  group_by(month = floor_date(start_datetime, 'month'), membership) %>%  
+  summarize(mean_tri_du = mean(trip_duration))
+tri_du_year$membership <- as.factor(tri_du_year$membership)
+tri_du_year$mean_tri_du <- as.numeric(tri_du_year$mean_tri_du)
+
+p_tri_du_line_year <- ggplot(data = tri_du_year, aes(x = month, y = mean_tri_du, group = membership, color = membership)) +  
+  geom_line() +
+  xlab("Year") +
+  ylab("Trip Duration") +
+  ggtitle("Trip Duration by Subscribers and Customers (annually 2013 - 2023)") +
+  scale_colour_manual(name = "membership", values = c("#41B6E6", "#E4002B")) + 
+  scale_y_time() +
+  theme_classic() +
+  theme(plot.title = element_text(hjust = 0.5))
+p_tri_du_line_year
+# we can see the mean trip durations are very close between subscriberse and customers in 2021
+
+invisible(gc())
+```
+Result of this section: (1) Subscribers overall have shorter trips compared to
+customers, though the gap of mean trip duration between the two membership is
+reduced since 2021.
+
+Using statistic tests to examine whether the observed differences among the
+years are significant.
+```{r}
+# from the table, subscribers and customers have decent contrasts for means, median, and sd
+# let's use a statistic test to see if we should be suprise to see the level of difference among years for subscribers and customers
+# as we are interested in only the difference among years within subscribers and customers, we segregate the full data set into subscribers and customers.
+# this makes computation a bit easier on my PC. You could perform two way anova or its non-parametric equivalent if you have a powerful PC.
+qqnorm(ride_data$trip_duration[ride_data$membership == "Subscriber" & ride_data$start_year == 2013])
+# not normal.
+qqnorm(ride_data$trip_duration[ride_data$membership == "Customer" & ride_data$start_year == 2013])
+# not normal.
+qqnorm(ride_data$trip_duration[ride_data$membership == "Subscriber" & ride_data$start_year == 2014])
+# not normal.
+qqnorm(ride_data$trip_duration[ride_data$membership == "Customer" & ride_data$start_year == 2014])
+# not normal.
+qqnorm(ride_data$trip_duration[ride_data$membership == "Subscriber" & ride_data$start_year == 2015])
+# not normal.
+qqnorm(ride_data$trip_duration[ride_data$membership == "Customer" & ride_data$start_year == 2015])
+# not normal.
+qqnorm(ride_data$trip_duration[ride_data$membership == "Subscriber" & ride_data$start_year == 2016])
+# not normal.
+qqnorm(ride_data$trip_duration[ride_data$membership == "Customer" & ride_data$start_year == 2016])
+# not normal.
+qqnorm(ride_data$trip_duration[ride_data$membership == "Subscriber" & ride_data$start_year == 2017])
+# not normal.
+qqnorm(ride_data$trip_duration[ride_data$membership == "Customer" & ride_data$start_year == 2017])
+# not normal.
+qqnorm(ride_data$trip_duration[ride_data$membership == "Subscriber" & ride_data$start_year == 2018])
+# not normal.
+qqnorm(ride_data$trip_duration[ride_data$membership == "Customer" & ride_data$start_year == 2018])
+# not normal.
+qqnorm(ride_data$trip_duration[ride_data$membership == "Subscriber" & ride_data$start_year == 2019])
+# not normal.
+qqnorm(ride_data$trip_duration[ride_data$membership == "Customer" & ride_data$start_year == 2019])
+# not normal.
+qqnorm(ride_data$trip_duration[ride_data$membership == "Subscriber" & ride_data$start_year == 2020])
+# not normal.
+qqnorm(ride_data$trip_duration[ride_data$membership == "Customer" & ride_data$start_year == 2020])
+# not normal.
+qqnorm(ride_data$trip_duration[ride_data$membership == "Subscriber" & ride_data$start_year == 2021])
+# not normal.
+qqnorm(ride_data$trip_duration[ride_data$membership == "Customer" & ride_data$start_year == 2021])
+# not normal.
+qqnorm(ride_data$trip_duration[ride_data$membership == "Subscriber" & ride_data$start_year == 2022])
+# not normal.
+qqnorm(ride_data$trip_duration[ride_data$membership == "Customer" & ride_data$start_year == 2022])
+# not normal.
+qqnorm(ride_data$trip_duration[ride_data$membership == "Subscriber" & ride_data$start_year == 2023])
+# not normal.
+qqnorm(ride_data$trip_duration[ride_data$membership == "Customer" & ride_data$start_year == 2023])
+# not normal.
+
+# as the data is not normally distributed, we can use a non-parametric ANOVA to test whether the observed difference is statistically significant for subscribers and customers, respectively.
+# for subscribers
+kruskal_sub_result <- kruskal.test(data = ride_data[ride_data$membership == "Subscriber", ], trip_duration ~ start_year)
+kruskal_sub_result
+# p-value < 2.2e-16, and the difference among years are significant!
+
+# let's follow up with a pairwise comparison to find out between which years, the difference is significant.
+# we can achieve this with Wilcoxon signed ranking test
+wsr_sub_data <- ride_data[ride_data$membership == "Subscriber", ] %>%
+  select(start_year, trip_duration)
+wsr_sub_data$start_year <- as.factor(wsr_sub_data$start_year)
+wsr_sub_result <- dunn_test(data = wsr_sub_data, trip_duration ~ start_year, p.adjust.method = "bonferroni")
+wsr_sub_result
+invisible(gc())
+# difference between most years are statistically significant, except for the pairs of following years: 2014 and 2015.
+
+# for customers
+kruskal_cus_result <- kruskal.test(data = ride_data[ride_data$membership == "Customer", ], trip_duration ~ start_year)
+kruskal_cus_result
+# p-value < 2.2e-16, and the difference among years are significant!
+
+# let's follow up with a Wilcoxon signed ranking test
+wsr_cus_data <- ride_data[ride_data$membership == "Customer", ] %>%
+  select(start_year, trip_duration)
+wsr_cus_data$start_year <- as.factor(wsr_cus_data$start_year)
+wsr_cus_result <- dunn_test(data = wsr_cus_data, trip_duration ~ start_year, p.adjust.method = "bonferroni")
+wsr_cus_result
+# difference between most years are statistically significant, except for the pairs of following years: 2013 and 2014.
+invisible(gc())
+```
+Result of this section: (1) Significant difference is present in terms of trip
+duration from 2013 to 2023. (2) the different trip duration is NOT statistically
+significant for the pairs of following years: 2014 and 2016, 2014 and 2018, 2016
+and 2018.
+
+Compute the descriptive statistics from 2013 to 2023 by weekdays.
+```{r}
+tri_du_wday <- data.frame(
+  weekday = c(rep("Mon", 2), rep("Tue", 2), rep("Wed", 2), rep("Thu", 2), rep("Fri", 2), rep("Sat", 2), rep("Sun", 2)),
+  membership = c("Subscriber", "Customer"),
+  max_duration = c(seconds_to_period(max(ride_data$trip_duration[ride_data$membership == "Subscriber" & ride_data$start_day == "Mon"])),
+                   seconds_to_period(max(ride_data$trip_duration[ride_data$membership == "Customer" & ride_data$start_day == "Mon"])),
+                   seconds_to_period(max(ride_data$trip_duration[ride_data$membership == "Subscriber" & ride_data$start_day == "Tue"])),
+                   seconds_to_period(max(ride_data$trip_duration[ride_data$membership == "Customer" & ride_data$start_day == "Tue"])),
+                   seconds_to_period(max(ride_data$trip_duration[ride_data$membership == "Subscriber" & ride_data$start_day == "Wed"])),
+                   seconds_to_period(max(ride_data$trip_duration[ride_data$membership == "Customer" & ride_data$start_day == "Wed"])),
+                   seconds_to_period(max(ride_data$trip_duration[ride_data$membership == "Subscriber" & ride_data$start_day == "Thu"])),
+                   seconds_to_period(max(ride_data$trip_duration[ride_data$membership == "Customer" & ride_data$start_day == "Thu"])),
+                   seconds_to_period(max(ride_data$trip_duration[ride_data$membership == "Subscriber" & ride_data$start_day == "Fri"])),
+                   seconds_to_period(max(ride_data$trip_duration[ride_data$membership == "Customer" & ride_data$start_day == "Fri"])),
+                   seconds_to_period(max(ride_data$trip_duration[ride_data$membership == "Subscriber" & ride_data$start_day == "Sat"])),
+                   seconds_to_period(max(ride_data$trip_duration[ride_data$membership == "Customer" & ride_data$start_day == "Sat"])),
+                   seconds_to_period(max(ride_data$trip_duration[ride_data$membership == "Subscriber" & ride_data$start_day == "Sun"])),
+                   seconds_to_period(max(ride_data$trip_duration[ride_data$membership == "Customer" & ride_data$start_day == "Sun"]))),
+  
+  min_duration = c(seconds_to_period(min(ride_data$trip_duration[ride_data$membership == "Subscriber" & ride_data$start_day == "Mon"])),
+                   seconds_to_period(min(ride_data$trip_duration[ride_data$membership == "Customer" & ride_data$start_day == "Mon"])),
+                   seconds_to_period(min(ride_data$trip_duration[ride_data$membership == "Subscriber" & ride_data$start_day == "Tue"])),
+                   seconds_to_period(min(ride_data$trip_duration[ride_data$membership == "Customer" & ride_data$start_day == "Tue"])),
+                   seconds_to_period(min(ride_data$trip_duration[ride_data$membership == "Subscriber" & ride_data$start_day == "Wed"])),
+                   seconds_to_period(min(ride_data$trip_duration[ride_data$membership == "Customer" & ride_data$start_day == "Wed"])),
+                   seconds_to_period(min(ride_data$trip_duration[ride_data$membership == "Subscriber" & ride_data$start_day == "Thu"])),
+                   seconds_to_period(min(ride_data$trip_duration[ride_data$membership == "Customer" & ride_data$start_day == "Thu"])),
+                   seconds_to_period(min(ride_data$trip_duration[ride_data$membership == "Subscriber" & ride_data$start_day == "Fri"])),
+                   seconds_to_period(min(ride_data$trip_duration[ride_data$membership == "Customer" & ride_data$start_day == "Fri"])),
+                   seconds_to_period(min(ride_data$trip_duration[ride_data$membership == "Subscriber" & ride_data$start_day == "Sat"])),
+                   seconds_to_period(min(ride_data$trip_duration[ride_data$membership == "Customer" & ride_data$start_day == "Sat"])),
+                   seconds_to_period(min(ride_data$trip_duration[ride_data$membership == "Subscriber" & ride_data$start_day == "Sun"])),
+                   seconds_to_period(min(ride_data$trip_duration[ride_data$membership == "Customer" & ride_data$start_day == "Sun"]))),
+  
+  mean_duration = c(round(seconds_to_period(mean(ride_data$trip_duration[ride_data$membership == "Subscriber" & ride_data$start_day == "Mon"])), digits = 0),
+                    round(seconds_to_period(mean(ride_data$trip_duration[ride_data$membership == "Customer" & ride_data$start_day == "Mon"])), digits = 0),
+                    round(seconds_to_period(mean(ride_data$trip_duration[ride_data$membership == "Subscriber" & ride_data$start_day == "Tue"])), digits = 0),
+                    round(seconds_to_period(mean(ride_data$trip_duration[ride_data$membership == "Customer" & ride_data$start_day == "Tue"])), digits = 0),
+                    round(seconds_to_period(mean(ride_data$trip_duration[ride_data$membership == "Subscriber" & ride_data$start_day == "Wed"])), digits = 0),
+                    round(seconds_to_period(mean(ride_data$trip_duration[ride_data$membership == "Customer" & ride_data$start_day == "Wed"])), digits = 0),
+                    round(seconds_to_period(mean(ride_data$trip_duration[ride_data$membership == "Subscriber" & ride_data$start_day == "Thu"])), digits = 0),
+                    round(seconds_to_period(mean(ride_data$trip_duration[ride_data$membership == "Customer" & ride_data$start_day == "Thu"])), digits = 0),
+                    round(seconds_to_period(mean(ride_data$trip_duration[ride_data$membership == "Subscriber" & ride_data$start_day == "Fri"])), digits = 0),
+                    round(seconds_to_period(mean(ride_data$trip_duration[ride_data$membership == "Customer" & ride_data$start_day == "Fri"])), digits = 0),
+                    round(seconds_to_period(mean(ride_data$trip_duration[ride_data$membership == "Subscriber" & ride_data$start_day == "Sat"])), digits = 0),
+                    round(seconds_to_period(mean(ride_data$trip_duration[ride_data$membership == "Customer" & ride_data$start_day == "Sat"])), digits = 0),
+                    round(seconds_to_period(mean(ride_data$trip_duration[ride_data$membership == "Subscriber" & ride_data$start_day == "Sun"])), digits = 0),
+                    round(seconds_to_period(mean(ride_data$trip_duration[ride_data$membership == "Customer" & ride_data$start_day == "Sun"])), digits = 0)),
+  
+  median_duration = c(seconds_to_period(median(ride_data$trip_duration[ride_data$membership == "Subscriber" & ride_data$start_day == "Mon"])),
+                      seconds_to_period(median(ride_data$trip_duration[ride_data$membership == "Customer" & ride_data$start_day == "Mon"])),
+                      seconds_to_period(median(ride_data$trip_duration[ride_data$membership == "Subscriber" & ride_data$start_day == "Tue"])),
+                      seconds_to_period(median(ride_data$trip_duration[ride_data$membership == "Customer" & ride_data$start_day == "Tue"])),
+                      seconds_to_period(median(ride_data$trip_duration[ride_data$membership == "Subscriber" & ride_data$start_day == "Wed"])),
+                      seconds_to_period(median(ride_data$trip_duration[ride_data$membership == "Customer" & ride_data$start_day == "Wed"])),
+                      seconds_to_period(median(ride_data$trip_duration[ride_data$membership == "Subscriber" & ride_data$start_day == "Thu"])),
+                      seconds_to_period(median(ride_data$trip_duration[ride_data$membership == "Customer" & ride_data$start_day == "Thu"])),
+                      seconds_to_period(median(ride_data$trip_duration[ride_data$membership == "Subscriber" & ride_data$start_day == "Fri"])),
+                      seconds_to_period(median(ride_data$trip_duration[ride_data$membership == "Customer" & ride_data$start_day == "Fri"])),
+                      seconds_to_period(median(ride_data$trip_duration[ride_data$membership == "Subscriber" & ride_data$start_day == "Sat"])),
+                      seconds_to_period(median(ride_data$trip_duration[ride_data$membership == "Customer" & ride_data$start_day == "Sat"])),
+                      seconds_to_period(median(ride_data$trip_duration[ride_data$membership == "Subscriber" & ride_data$start_day == "Sun"])),
+                      seconds_to_period(median(ride_data$trip_duration[ride_data$membership == "Customer" & ride_data$start_day == "Sun"]))),
+  
+  standard_deviantion = c(sd(ride_data$trip_duration[ride_data$membership == "Subscriber" & ride_data$start_day == "Mon"]),
+                          sd(ride_data$trip_duration[ride_data$membership == "Customer" & ride_data$start_day == "Mon"]),
+                          sd(ride_data$trip_duration[ride_data$membership == "Subscriber" & ride_data$start_day == "Tue"]),
+                          sd(ride_data$trip_duration[ride_data$membership == "Customer" & ride_data$start_day == "Tue"]),
+                          sd(ride_data$trip_duration[ride_data$membership == "Subscriber" & ride_data$start_day == "Wed"]),
+                          sd(ride_data$trip_duration[ride_data$membership == "Customer" & ride_data$start_day == "Wed"]),
+                          sd(ride_data$trip_duration[ride_data$membership == "Subscriber" & ride_data$start_day == "Thu"]),
+                          sd(ride_data$trip_duration[ride_data$membership == "Customer" & ride_data$start_day == "Thu"]),
+                          sd(ride_data$trip_duration[ride_data$membership == "Subscriber" & ride_data$start_day == "Fri"]),
+                          sd(ride_data$trip_duration[ride_data$membership == "Customer" & ride_data$start_day == "Fri"]),
+                          sd(ride_data$trip_duration[ride_data$membership == "Subscriber" & ride_data$start_day == "Sat"]),
+                          sd(ride_data$trip_duration[ride_data$membership == "Customer" & ride_data$start_day == "Sat"]),
+                          sd(ride_data$trip_duration[ride_data$membership == "Subscriber" & ride_data$start_day == "Sun"]),
+                          sd(ride_data$trip_duration[ride_data$membership == "Customer" & ride_data$start_day == "Sun"]))
+)
+kable(tri_du_wday, style = "rmarkdown")
+
+# visualise 
+# create a box plot.
+p_tri_du_wday_box <- ggplot(ride_data, aes(x =  factor(start_day,
+                                                       level = c("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")), 
+                                           y = trip_duration, colour = membership, fill = membership)) + 
+  geom_boxplot(stat = "boxplot", alpha = 0.3) +
+  scale_y_time(limits = quantile(ride_data$trip_duration, c(0.1, 0.9))) +
+  xlab("Weekdays") +
+  ylab("Trip Duration") +
+  ggtitle("Trip Duration by Subscribers and Customers (daily Monday - Friday)") +
+  scale_colour_manual(name = "membership", values = c("#41B6E6", "#E4002B")) + 
+  scale_fill_manual(name = "membership", values = c("#41B6E6", "#E4002B")) + 
+  theme_classic() +
+  theme(plot.title = element_text(hjust = 0.5))
+p_tri_du_wday_box
+invisible(gc())
+# subscribers consistently have shorter mean trip duration than customers.
+
+# scatter points to visualise the entire data set.
+ride_data$membership <- as.factor(ride_data$membership)
+p_tri_du_point_wday <- ggplot(ride_data, aes(x =  start_day, y = trip_duration, colour = membership)) + 
+  geom_jitter() +
+  scale_y_time(expand = c(0, 0), limits = c(0, NA)) +
+  xlab("Weekdays") +
+  ylab("Trip Duration") +
+  ggtitle("Trip Duration by Subscribers and Customers (daily Monday - Friday)") +
+  scale_colour_manual(name = "membership", values = c("#41B6E6", "#E4002B")) + 
+  theme_classic() +
+  theme(plot.title = element_text(hjust = 0.5))
+p_tri_du_point_wday
+invisible(gc())
+
+# create a line plot to see fluctuation of means during a given week explicitly.
+p_tri_du_line_wday <- ggplot(data = tri_du_wday) +  
+  geom_line(aes(x = factor(weekday, 
+                           level = c("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")), 
+                y = mean_duration, group = membership, color = membership)) +
+  geom_line(linetype = "dashed", aes(x = factor(weekday, 
+                           level = c("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")), 
+                y = median_duration, group = membership, color = membership)) +
+  xlab("Weekdays") +
+  ylab("Trip Duration") +
+  ggtitle("Trip Duration by Subscribers and Customers (daily Monday - Friday)") +
+  scale_colour_manual(name = "membership", values = c("#41B6E6", "#E4002B")) + 
+  scale_y_time() +
+  theme_classic() +
+  theme(plot.title = element_text(hjust = 0.5))
+p_tri_du_line_wday
+
+invisible(gc())
+```
+Result of this section: (1) both mean and median trip duration are shorter by
+subscribers than customers. (2) trip duration is consistently increased on
+weekends for both subscribers and customers. (3) although Tuesday has a increase
+in mean trip duration for subscriber, the median stays on the same level as the
+rest of week day. Accordingly, the deviated mean trip duration for subscribers
+on Tuesday is likely a result of the large range of trip duration in this data
+set.
+
+Using statistic tests to examine whether the observed differences among the
+weekdays are significant.
+```{r}
+# examine the data to see whether they are normally distributed.
+qqnorm(ride_data$trip_duration[ride_data$membership == "Subscriber" & ride_data$start_day == "Mon"])
+# not normal
+qqnorm(ride_data$trip_duration[ride_data$membership == "Customer" & ride_data$start_day == "Mon"])
+# not normal
+qqnorm(ride_data$trip_duration[ride_data$membership == "Subscriber" & ride_data$start_day == "Tue"])
+# not normal
+qqnorm(ride_data$trip_duration[ride_data$membership == "Customer" & ride_data$start_day == "Tue"])
+# not normal
+qqnorm(ride_data$trip_duration[ride_data$membership == "Subscriber" & ride_data$start_day == "Wed"])
+# not normal
+qqnorm(ride_data$trip_duration[ride_data$membership == "Customer" & ride_data$start_day == "Wed"])
+# not normal
+qqnorm(ride_data$trip_duration[ride_data$membership == "Subscriber" & ride_data$start_day == "Thu"])
+# not normal
+qqnorm(ride_data$trip_duration[ride_data$membership == "Customer" & ride_data$start_day == "Thu"])
+# not normal
+qqnorm(ride_data$trip_duration[ride_data$membership == "Subscriber" & ride_data$start_day == "Fri"])
+# not normal
+qqnorm(ride_data$trip_duration[ride_data$membership == "Customer" & ride_data$start_day == "Fri"])
+# not normal
+qqnorm(ride_data$trip_duration[ride_data$membership == "Subscriber" & ride_data$start_day == "Sat"])
+# not normal
+qqnorm(ride_data$trip_duration[ride_data$membership == "Customer" & ride_data$start_day == "Sat"])
+# not normal
+qqnorm(ride_data$trip_duration[ride_data$membership == "Subscriber" & ride_data$start_day == "Sun"])
+# not normal
+qqnorm(ride_data$trip_duration[ride_data$membership == "Customer" & ride_data$start_day == "Sun"])
+# not normal
+
+# as the data is not normally distributed, we can use a non-parametric ANOVA to test whether the observed difference is statistically significant.
+# for subscribers.
+kruskal_sub_result <- kruskal.test(data = ride_data[ride_data$membership == "Subscriber", ], trip_duration ~ start_day)
+kruskal_sub_result
+
+# p-value < 2.2e-16, and the difference among years are significant!
+
+# let's follow up with a pairwise comparison to find out between which weekdays, the difference is significant.
+# we can achieve this with Wilcoxon signed ranking test
+# for subscribers.
+wsr_sub_data <- ride_data[ride_data$membership == "Subscriber", ] %>%
+  select(start_day, trip_duration)
+wsr_sub_data$start_day <- as.factor(wsr_sub_data$start_day)
+wsr_sub_result <- dunn_test(data = wsr_sub_data, trip_duration ~ start_day, p.adjust.method = "bonferroni")
+wsr_sub_result
+# for subscribers, ride distance is significantly different between weekdays, except for between Tuesday and Wednesday, Tuesday and Thursday, and Wednesday and Thursday.
+
+# for customers.
+kruskal_cus_result <- kruskal.test(data = ride_data[ride_data$membership == "Customer", ], trip_duration ~ start_day)
+kruskal_cus_result
+# p-value < 2.2e-16, and the difference among years are significant!
+
+# let's follow up with a pairwise comparison to find out between which weekdays, the difference is significant.
+# we can achieve this with Wilcoxon signed ranking test
+wsr_cus_data <- ride_data[ride_data$membership == "Customer", ] %>%
+  select(start_day, trip_duration)
+wsr_cus_data$start_day <- as.factor(wsr_cus_data$start_day)
+wsr_cus_result <- dunn_test(data = wsr_cus_data, trip_duration ~ start_day, p.adjust.method = "bonferroni")
+wsr_cus_result
+# trip duration is statistically different between any two given weekdays for customers.
+invisible(gc())
+```
+Result of this section: (1) the observed difference in trip duration is
+statistically distinct between two given weekdays for customers. (2) trip
+duration for subscribers are not significantly different among Tuesday,
+Wednesday, and Thursday.
+
+### Ride distance as a primary metric
+Compute the descriptive statistics using the data from 2013 to 2023 as a whole.
+```{r}
+tri_rd_all <- data.frame(
+  membership = c("Subscriber", "Customer"),
+  max_distance = c(round(max(ride_data$rdistance[ride_data$membership == "Subscriber"]), digit = 2),
+                   round(max(ride_data$rdistance[ride_data$membership == "Customer"]), digit = 2)),
+  
+  min_distance = c(round(min(ride_data$rdistance[ride_data$membership == "Subscriber" & ride_data$rdistance != 0]), digit = 2),
+                   round(min(ride_data$rdistance[ride_data$membership == "Customer" & ride_data$rdistance != 0]), digit = 2)),
+  
+  mean_distance = c(round(mean(ride_data$rdistance[ride_data$membership == "Subscriber"]), digits = 2),
+                    round(mean(ride_data$rdistance[ride_data$membership == "Customer"]), digits = 2)),
+  
+  median_distance = c(round(median(ride_data$rdistance[ride_data$membership == "Subscriber"]), digit = 2),
+                      round(median(ride_data$rdistance[ride_data$membership == "Customer"]), digit = 2)),
+  
+  standard_deviantion = c(sd(ride_data$rdistance[ride_data$membership == "Subscriber"]),
+                          sd(ride_data$rdistance[ride_data$membership == "Customer"]))
+)
+kable(tri_rd_all, style = "rmarkdown")
+
+# boxplot to visualise the descriptive statistics
+p_tri_rd_all_box <- ggplot(ride_data, aes(x =  membership, y = rdistance, colour = membership, fill = membership)) + 
+  geom_boxplot(stat = "boxplot", alpha = 0.3) +
+  scale_y_continuous(limits = quantile(ride_data$rdistance, c(0.1, 0.9))) +
+  xlab("Membership") +
+  ylab("Trip Duration") +
+  ggtitle("Ride Distance by Subscribers and Customers (2013 - 2023)") +
+  scale_colour_manual(name = "membership", values = c("#41B6E6", "#E4002B")) + 
+  scale_fill_manual(name = "membership", values = c("#41B6E6", "#E4002B")) + 
+  theme_classic() +
+  theme(plot.title = element_text(hjust = 0.5))
+p_tri_rd_all_box
+
+# as the extreme values are cut off on the boxplot, a scatter plot is created as a suppelemnt
+p_tri_rd_all_point <- ggplot(ride_data, aes(x =  membership, y = rdistance, colour = membership)) + 
+  geom_jitter() +
+  scale_y_continuous(labels = unit_format(unit = "km", scale = 1e-3), expand = c(0, 0), limits = c(0, NA)) +
+  xlab("Membership") +
+  ylab("Trip Duration") +
+  ggtitle("Ride Distance by Subscribers and Customers (2013 - 2023)") +
+  scale_colour_manual(name = "membership", values = c("#41B6E6", "#E4002B")) + 
+  theme_classic() +
+  theme(plot.title = element_text(hjust = 0.5))
+p_tri_rd_all_point
+
+invisible(gc())
+```
+Result of this section: (1) both mean and median ride distance is lower for
+subscribers than customers, though they are fairly close in magnitude.
+
+Using statistic tests to examine whether the observed differences among the
+years are significant.
+```{r}
+# examine whether the entire data set is normally distributed.
+qqnorm(ride_data$trip_duration[ride_data$membership == "Subscriber"])
+qqnorm(ride_data$trip_duration[ride_data$membership == "Customer"])
+
+# as the data is non-normally distributed, we use a Two-sample Mann–Whitney U test from the coin package.
+# normality may not be necessary as real-world data tends to be non-normal as the sample size becomes huge.
+# convert the datetime format to dbl.
+u_test_tri_du_all <- ride_data[,c(8,18)]
+u_test_tri_du_all$membership <- as.factor(u_test_tri_du_all$membership)
+u_test_tri_du_all$trip_duration <- as.numeric(u_test_tri_du_all$trip_duration)
+u_test_tri_du_all_result <- coin :: wilcox_test(trip_duration ~ membership, data = u_test_tri_du_all, distribution = "approximate")
+u_test_tri_du_all_result
+invisible(gc())
+```
+Result of this section: (1) p-value \< 1e-04. The difference is statistically
+significant!
+
+Compute the descriptive statistics using the data from 2013 to 2023 annually.
+```{r}
+# only the non-zero distance is used in computation as we can only infer ride distance from spatial coordinates
+year_r_dis_sum <- data.frame(
+  year = c(rep(2013, 2), rep(2014, 2), rep(2015, 2), rep(2016, 2), rep(2017, 2), rep(2018, 2),
+           rep(2019, 2), rep(2020, 2), rep(2021, 2), rep(2022, 2), rep(2023, 2)),
+  membership = c("Subscriber", "Customer"),
+  max_distance = c(round(max(ride_data$rdistance[ride_data$membership == "Subscriber" & ride_data$start_year == 2013 & ride_data$rdistance != 0]), digits = 2),
+                   round(max(ride_data$rdistance[ride_data$membership == "Customer" & ride_data$start_year == 2013 & ride_data$rdistance != 0]), digits = 2),
+                   round(max(ride_data$rdistance[ride_data$membership == "Subscriber" & ride_data$start_year == 2014 & ride_data$rdistance != 0]), digits = 2),
+                   round(max(ride_data$rdistance[ride_data$membership == "Customer" & ride_data$start_year == 2014 & ride_data$rdistance != 0]), digits = 2),
+                   round(max(ride_data$rdistance[ride_data$membership == "Subscriber" & ride_data$start_year == 2015 & ride_data$rdistance != 0]), digits = 2),
+                   round(max(ride_data$rdistance[ride_data$membership == "Customer" & ride_data$start_year == 2015 & ride_data$rdistance != 0]), digits = 2),
+                   round(max(ride_data$rdistance[ride_data$membership == "Subscriber" & ride_data$start_year == 2016 & ride_data$rdistance != 0]), digits = 2),
+                   round(max(ride_data$rdistance[ride_data$membership == "Customer" & ride_data$start_year == 2016 & ride_data$rdistance != 0]), digits = 2),
+                   round(max(ride_data$rdistance[ride_data$membership == "Subscriber" & ride_data$start_year == 2017 & ride_data$rdistance != 0]), digits = 2),
+                   round(max(ride_data$rdistance[ride_data$membership == "Customer" & ride_data$start_year == 2017 & ride_data$rdistance != 0]), digits = 2),
+                   round(max(ride_data$rdistance[ride_data$membership == "Subscriber" & ride_data$start_year == 2018 & ride_data$rdistance != 0]), digits = 2),
+                   round(max(ride_data$rdistance[ride_data$membership == "Customer" & ride_data$start_year == 2018 & ride_data$rdistance != 0]), digits = 2),
+                   round(max(ride_data$rdistance[ride_data$membership == "Subscriber" & ride_data$start_year == 2019 & ride_data$rdistance != 0]), digits = 2),
+                   round(max(ride_data$rdistance[ride_data$membership == "Customer" & ride_data$start_year == 2019 & ride_data$rdistance != 0]), digits = 2),
+                   round(max(ride_data$rdistance[ride_data$membership == "Subscriber" & ride_data$start_year == 2020 & ride_data$rdistance != 0]), digits = 2),
+                   round(max(ride_data$rdistance[ride_data$membership == "Customer" & ride_data$start_year == 2020 & ride_data$rdistance != 0]), digits = 2),
+                   round(max(ride_data$rdistance[ride_data$membership == "Subscriber" & ride_data$start_year == 2021 & ride_data$rdistance != 0]), digits = 2),
+                   round(max(ride_data$rdistance[ride_data$membership == "Customer" & ride_data$start_year == 2021 & ride_data$rdistance != 0]), digits = 2),
+                   round(max(ride_data$rdistance[ride_data$membership == "Subscriber" & ride_data$start_year == 2022 & ride_data$rdistance != 0]), digits = 2),
+                   round(max(ride_data$rdistance[ride_data$membership == "Customer" & ride_data$start_year == 2022 & ride_data$rdistance != 0]), digits = 2),
+                   round(max(ride_data$rdistance[ride_data$membership == "Subscriber" & ride_data$start_year == 2023 & ride_data$rdistance != 0]), digits = 2),
+                   round(max(ride_data$rdistance[ride_data$membership == "Customer" & ride_data$start_year == 2023 & ride_data$rdistance != 0]), digits = 2)),
+  
+  min_distance = c(round(min(ride_data$rdistance[ride_data$membership == "Subscriber" & ride_data$start_year == 2013 & ride_data$rdistance != 0]), digits = 2),
+                   round(min(ride_data$rdistance[ride_data$membership == "Customer" & ride_data$start_year == 2013 & ride_data$rdistance != 0]), digits = 2),
+                   round(min(ride_data$rdistance[ride_data$membership == "Subscriber" & ride_data$start_year == 2014 & ride_data$rdistance != 0]), digits = 2),
+                   round(min(ride_data$rdistance[ride_data$membership == "Customer" & ride_data$start_year == 2014 & ride_data$rdistance != 0]), digits = 2),
+                   round(min(ride_data$rdistance[ride_data$membership == "Subscriber" & ride_data$start_year == 2015 & ride_data$rdistance != 0]), digits = 2),
+                   round(min(ride_data$rdistance[ride_data$membership == "Customer" & ride_data$start_year == 2015 & ride_data$rdistance != 0]), digits = 2),
+                   round(min(ride_data$rdistance[ride_data$membership == "Subscriber" & ride_data$start_year == 2016 & ride_data$rdistance != 0]), digits = 2),
+                   round(min(ride_data$rdistance[ride_data$membership == "Customer" & ride_data$start_year == 2016 & ride_data$rdistance != 0]), digits = 2),
+                   round(min(ride_data$rdistance[ride_data$membership == "Subscriber" & ride_data$start_year == 2017 & ride_data$rdistance != 0]), digits = 2),
+                   round(min(ride_data$rdistance[ride_data$membership == "Customer" & ride_data$start_year == 2017 & ride_data$rdistance != 0]), digits = 2),
+                   round(min(ride_data$rdistance[ride_data$membership == "Subscriber" & ride_data$start_year == 2018 & ride_data$rdistance != 0]), digits = 2),
+                   round(min(ride_data$rdistance[ride_data$membership == "Customer" & ride_data$start_year == 2018 & ride_data$rdistance != 0]), digits = 2),
+                   round(min(ride_data$rdistance[ride_data$membership == "Subscriber" & ride_data$start_year == 2019 & ride_data$rdistance != 0]), digits = 2),
+                   round(min(ride_data$rdistance[ride_data$membership == "Customer" & ride_data$start_year == 2019 & ride_data$rdistance != 0]), digits = 2),
+                   round(min(ride_data$rdistance[ride_data$membership == "Subscriber" & ride_data$start_year == 2020 & ride_data$rdistance != 0]), digits = 2),
+                   round(min(ride_data$rdistance[ride_data$membership == "Customer" & ride_data$start_year == 2020 & ride_data$rdistance != 0]), digits = 2),
+                   round(min(ride_data$rdistance[ride_data$membership == "Subscriber" & ride_data$start_year == 2021 & ride_data$rdistance != 0]), digits = 2),
+                   round(min(ride_data$rdistance[ride_data$membership == "Customer" & ride_data$start_year == 2021 & ride_data$rdistance != 0]), digits = 2),
+                   round(min(ride_data$rdistance[ride_data$membership == "Subscriber" & ride_data$start_year == 2022 & ride_data$rdistance != 0]), digits = 2),
+                   round(min(ride_data$rdistance[ride_data$membership == "Customer" & ride_data$start_year == 2022 & ride_data$rdistance != 0]), digits = 2),
+                   round(min(ride_data$rdistance[ride_data$membership == "Subscriber" & ride_data$start_year == 2023 & ride_data$rdistance != 0]), digits = 2),
+                   round(min(ride_data$rdistance[ride_data$membership == "Customer" & ride_data$start_year == 2023 & ride_data$rdistance != 0]), digits = 2)),
+  
+  mean_distance = c(round(mean(ride_data$rdistance[ride_data$membership == "Subscriber" & ride_data$start_year == 2013 & ride_data$rdistance != 0]), digits = 2),
+                    round(mean(ride_data$rdistance[ride_data$membership == "Customer" & ride_data$start_year == 2013 & ride_data$rdistance != 0]), digits = 2),
+                    round(mean(ride_data$rdistance[ride_data$membership == "Subscriber" & ride_data$start_year == 2014 & ride_data$rdistance != 0]), digits = 2),
+                    round(mean(ride_data$rdistance[ride_data$membership == "Customer" & ride_data$start_year == 2014 & ride_data$rdistance != 0]), digits = 2),
+                    round(mean(ride_data$rdistance[ride_data$membership == "Subscriber" & ride_data$start_year == 2015 & ride_data$rdistance != 0]), digits = 2),
+                    round(mean(ride_data$rdistance[ride_data$membership == "Customer" & ride_data$start_year == 2015 & ride_data$rdistance != 0]), digits = 2),
+                    round(mean(ride_data$rdistance[ride_data$membership == "Subscriber" & ride_data$start_year == 2016 & ride_data$rdistance != 0]), digits = 2),
+                    round(mean(ride_data$rdistance[ride_data$membership == "Customer" & ride_data$start_year == 2016 & ride_data$rdistance != 0]), digits = 2),
+                    round(mean(ride_data$rdistance[ride_data$membership == "Subscriber" & ride_data$start_year == 2017 & ride_data$rdistance != 0]), digits = 2),
+                    round(mean(ride_data$rdistance[ride_data$membership == "Customer" & ride_data$start_year == 2017 & ride_data$rdistance != 0]), digits = 2),
+                    round(mean(ride_data$rdistance[ride_data$membership == "Subscriber" & ride_data$start_year == 2018 & ride_data$rdistance != 0]), digits = 2),
+                    round(mean(ride_data$rdistance[ride_data$membership == "Customer" & ride_data$start_year == 2018 & ride_data$rdistance != 0]), digits = 2),
+                    round(mean(ride_data$rdistance[ride_data$membership == "Subscriber" & ride_data$start_year == 2019 & ride_data$rdistance != 0]), digits = 2),
+                    round(mean(ride_data$rdistance[ride_data$membership == "Customer" & ride_data$start_year == 2019 & ride_data$rdistance != 0]), digits = 2),
+                    round(mean(ride_data$rdistance[ride_data$membership == "Subscriber" & ride_data$start_year == 2020 & ride_data$rdistance != 0]), digits = 2),
+                    round(mean(ride_data$rdistance[ride_data$membership == "Customer" & ride_data$start_year == 2020 & ride_data$rdistance != 0]), digits = 2),
+                    round(mean(ride_data$rdistance[ride_data$membership == "Subscriber" & ride_data$start_year == 2021 & ride_data$rdistance != 0]), digits = 2),
+                    round(mean(ride_data$rdistance[ride_data$membership == "Customer" & ride_data$start_year == 2021 & ride_data$rdistance != 0]), digits = 2),
+                    round(mean(ride_data$rdistance[ride_data$membership == "Subscriber" & ride_data$start_year == 2022 & ride_data$rdistance != 0]), digits = 2),
+                    round(mean(ride_data$rdistance[ride_data$membership == "Customer" & ride_data$start_year == 2022 & ride_data$rdistance != 0]), digits = 2),
+                    round(mean(ride_data$rdistance[ride_data$membership == "Subscriber" & ride_data$start_year == 2023 & ride_data$rdistance != 0]), digits = 2),
+                    round(mean(ride_data$rdistance[ride_data$membership == "Customer" & ride_data$start_year == 2023 & ride_data$rdistance != 0]), digits = 2)),
+  
+  median_distance = c(round(median(ride_data$rdistance[ride_data$membership == "Subscriber" & ride_data$start_year == 2013 & ride_data$rdistance != 0]), digits = 2),
+                      round(median(ride_data$rdistance[ride_data$membership == "Customer" & ride_data$start_year == 2013 & ride_data$rdistance != 0]), digits = 2),
+                      round(median(ride_data$rdistance[ride_data$membership == "Subscriber" & ride_data$start_year == 2014 & ride_data$rdistance != 0]), digits = 2),
+                      round(median(ride_data$rdistance[ride_data$membership == "Customer" & ride_data$start_year == 2014 & ride_data$rdistance != 0]), digits = 2),
+                      round(median(ride_data$rdistance[ride_data$membership == "Subscriber" & ride_data$start_year == 2015 & ride_data$rdistance != 0]), digits = 2),
+                      round(median(ride_data$rdistance[ride_data$membership == "Customer" & ride_data$start_year == 2015 & ride_data$rdistance != 0]), digits = 2),
+                      round(median(ride_data$rdistance[ride_data$membership == "Subscriber" & ride_data$start_year == 2016 & ride_data$rdistance != 0]), digits = 2),
+                      round(median(ride_data$rdistance[ride_data$membership == "Customer" & ride_data$start_year == 2016 & ride_data$rdistance != 0]), digits = 2),
+                      round(median(ride_data$rdistance[ride_data$membership == "Subscriber" & ride_data$start_year == 2017 & ride_data$rdistance != 0]), digits = 2),
+                      round(median(ride_data$rdistance[ride_data$membership == "Customer" & ride_data$start_year == 2017 & ride_data$rdistance != 0]), digits = 2),
+                      round(median(ride_data$rdistance[ride_data$membership == "Subscriber" & ride_data$start_year == 2018 & ride_data$rdistance != 0]), digits = 2),
+                      round(median(ride_data$rdistance[ride_data$membership == "Customer" & ride_data$start_year == 2018 & ride_data$rdistance != 0]), digits = 2),
+                      round(median(ride_data$rdistance[ride_data$membership == "Subscriber" & ride_data$start_year == 2019 & ride_data$rdistance != 0]), digits = 2),
+                      round(median(ride_data$rdistance[ride_data$membership == "Customer" & ride_data$start_year == 2019 & ride_data$rdistance != 0]), digits = 2),
+                      round(median(ride_data$rdistance[ride_data$membership == "Subscriber" & ride_data$start_year == 2020 & ride_data$rdistance != 0]), digits = 2),
+                      round(median(ride_data$rdistance[ride_data$membership == "Customer" & ride_data$start_year == 2020 & ride_data$rdistance != 0]), digits = 2),
+                      round(median(ride_data$rdistance[ride_data$membership == "Subscriber" & ride_data$start_year == 2021 & ride_data$rdistance != 0]), digits = 2),
+                      round(median(ride_data$rdistance[ride_data$membership == "Customer" & ride_data$start_year == 2021 & ride_data$rdistance != 0]), digits = 2),
+                      round(median(ride_data$rdistance[ride_data$membership == "Subscriber" & ride_data$start_year == 2022 & ride_data$rdistance != 0]), digits = 2),
+                      round(median(ride_data$rdistance[ride_data$membership == "Customer" & ride_data$start_year == 2022 & ride_data$rdistance != 0]), digits = 2),
+                      round(median(ride_data$rdistance[ride_data$membership == "Subscriber" & ride_data$start_year == 2023 & ride_data$rdistance != 0]), digits = 2),
+                      round(median(ride_data$rdistance[ride_data$membership == "Customer" & ride_data$start_year == 2023 & ride_data$rdistance != 0]), digits = 2)),
+  
+  standard_deviantion = c(sd(ride_data$rdistance[ride_data$membership == "Subscriber" & ride_data$start_year == 2013 & ride_data$rdistance != 0]),
+                          sd(ride_data$rdistance[ride_data$membership == "Customer" & ride_data$start_year == 2013 & ride_data$rdistance != 0]),
+                          sd(ride_data$rdistance[ride_data$membership == "Subscriber" & ride_data$start_year == 2014 & ride_data$rdistance != 0]),
+                          sd(ride_data$rdistance[ride_data$membership == "Customer" & ride_data$start_year == 2014 & ride_data$rdistance != 0]),
+                          sd(ride_data$rdistance[ride_data$membership == "Subscriber" & ride_data$start_year == 2015 & ride_data$rdistance != 0]),
+                          sd(ride_data$rdistance[ride_data$membership == "Customer" & ride_data$start_year == 2015 & ride_data$rdistance != 0]),
+                          sd(ride_data$rdistance[ride_data$membership == "Subscriber" & ride_data$start_year == 2016 & ride_data$rdistance != 0]),
+                          sd(ride_data$rdistance[ride_data$membership == "Customer" & ride_data$start_year == 2016 & ride_data$rdistance != 0]),
+                          sd(ride_data$rdistance[ride_data$membership == "Subscriber" & ride_data$start_year == 2017 & ride_data$rdistance != 0]),
+                          sd(ride_data$rdistance[ride_data$membership == "Customer" & ride_data$start_year == 2017 & ride_data$rdistance != 0]),
+                          sd(ride_data$rdistance[ride_data$membership == "Subscriber" & ride_data$start_year == 2018 & ride_data$rdistance != 0]),
+                          sd(ride_data$rdistance[ride_data$membership == "Customer" & ride_data$start_year == 2018 & ride_data$rdistance != 0]),
+                          sd(ride_data$rdistance[ride_data$membership == "Subscriber" & ride_data$start_year == 2019 & ride_data$rdistance != 0]),
+                          sd(ride_data$rdistance[ride_data$membership == "Customer" & ride_data$start_year == 2019 & ride_data$rdistance != 0]),
+                          sd(ride_data$rdistance[ride_data$membership == "Subscriber" & ride_data$start_year == 2020 & ride_data$rdistance != 0]),
+                          sd(ride_data$rdistance[ride_data$membership == "Customer" & ride_data$start_year == 2020 & ride_data$rdistance != 0]),
+                          sd(ride_data$rdistance[ride_data$membership == "Subscriber" & ride_data$start_year == 2021 & ride_data$rdistance != 0]),
+                          sd(ride_data$rdistance[ride_data$membership == "Customer" & ride_data$start_year == 2021 & ride_data$rdistance != 0]),
+                          sd(ride_data$rdistance[ride_data$membership == "Subscriber" & ride_data$start_year == 2022 & ride_data$rdistance != 0]),
+                          sd(ride_data$rdistance[ride_data$membership == "Customer" & ride_data$start_year == 2022 & ride_data$rdistance != 0]),
+                          sd(ride_data$rdistance[ride_data$membership == "Subscriber" & ride_data$start_year == 2023 & ride_data$rdistance != 0]),
+                          sd(ride_data$rdistance[ride_data$membership == "Customer" & ride_data$start_year == 2023 & ride_data$rdistance != 0]))
+)
+kable(year_r_dis_sum, style = "rmarkdown")
+invisible(gc())
+
+# boxplot to visualise the descriptive statistics
+p_tri_rd_all_box <- ggplot(ride_data, aes(x =  start_year, y = rdistance, colour = membership, fill = membership)) + 
+  geom_boxplot(stat = "boxplot", alpha = 0.3) +
+  scale_y_continuous(limits = quantile(ride_data$rdistance, c(0.1, 0.9))) +
+  xlab("Year") +
+  ylab("Ride Distance") +
+  ggtitle("Ride Distance by Subscribers and Customers (annually 2013 - 2023)") +
+  scale_colour_manual(name = "membership", values = c("#41B6E6", "#E4002B")) + 
+  scale_fill_manual(name = "membership", values = c("#41B6E6", "#E4002B")) + 
+  theme_classic() +
+  theme(plot.title = element_text(hjust = 0.5))
+p_tri_rd_all_box
+
+# scatter plots of trip distance 
+# max ride distance is oddly large and could be a single outlier. We therefore remove it from the plot
+ride_data$membership <- as.factor(ride_data$membership)
+p_r_dis_point_year <- ggplot(data = ride_data[which(ride_data$rdistance > 0), ], aes(x =  start_year, y = rdistance, colour = membership)) + 
+  geom_jitter() +
+  scale_y_continuous(labels = unit_format(unit = "km", scale = 1e-3), expand = c(0, 0), limits = c(0, NA)) +
+  xlab("Year") +
+  ylab("Ride Distance") +
+  ggtitle("Ride Distance by Subscribers and Customers (annually 2013 - 2023)") +
+  scale_colour_manual(name = "membership", values = c("#41B6E6", "#E4002B")) + 
+  theme_classic() +
+  theme(plot.title = element_text(hjust = 0.5))
+p_r_dis_point_year
+invisible(gc())
+
+# plot to see changes in ride distance through out the years
+r_dis_year <- ride_data[which(ride_data$rdistance > 0), ] %>% 
+  group_by(month = floor_date(start_datetime, 'month'), membership) %>%  
+  summarize(mean_r_dis = mean(rdistance))
+r_dis_year$membership <- as.factor(r_dis_year$membership)
+r_dis_year$mean_r_dis <- as.numeric(r_dis_year$mean_r_dis)
+
+p_r_dis_line_year <- ggplot(data = r_dis_year, aes(x = month, y = mean_r_dis, group = membership, color = membership)) +  
+  geom_line() +
+  scale_y_continuous(labels = unit_format(unit = "km", scale = 1e-3), expand = c(0, 0), limits = c(0, NA)) +
+  xlab("Year") +
+  ylab("Ride Distance") +
+  ggtitle("Ride Distance by Subscribers and Customers (annually 2013 - 2023)") +
+  scale_colour_manual(name = "membership", values = c("#41B6E6", "#E4002B")) + 
+  theme_classic() +
+  theme(plot.title = element_text(hjust = 0.5))
+p_r_dis_line_year
+
+invisible(gc())
+```
+Result of this section: (1) ride distances are fairly different between
+subscribers and customers for all years except for the median ride distance in
+2021. (2) ride distance for both subscribers and customers fluctuates throughout
+the years, but have obviously increased since 2021. (3) ride distance for each
+year seemingly increase for the first half of the year and decrease for the
+second half.
+
+Using statistic tests to examine whether the observed differences among the
+years are significant.
+```{r}
+# examine the normality of data
+qqnorm(ride_data$rdistance[ride_data$membership == "Subscriber" & ride_data$start_year == 2013])
+# not normal.
+qqnorm(ride_data$rdistance[ride_data$membership == "Customer" & ride_data$start_year == 2013])
+# not normal.
+qqnorm(ride_data$rdistance[ride_data$membership == "Subscriber" & ride_data$start_year == 2014])
+# not normal.
+qqnorm(ride_data$rdistance[ride_data$membership == "Customer" & ride_data$start_year == 2014])
+# not normal.
+qqnorm(ride_data$rdistance[ride_data$membership == "Subscriber" & ride_data$start_year == 2015])
+# not normal.
+qqnorm(ride_data$rdistance[ride_data$membership == "Customer" & ride_data$start_year == 2015])
+# not normal.
+qqnorm(ride_data$rdistance[ride_data$membership == "Subscriber" & ride_data$start_year == 2016])
+# not normal.
+qqnorm(ride_data$rdistance[ride_data$membership == "Customer" & ride_data$start_year == 2016])
+# not normal.
+qqnorm(ride_data$rdistance[ride_data$membership == "Subscriber" & ride_data$start_year == 2017])
+# not normal.
+qqnorm(ride_data$rdistance[ride_data$membership == "Customer" & ride_data$start_year == 2017])
+# not normal.
+qqnorm(ride_data$rdistance[ride_data$membership == "Subscriber" & ride_data$start_year == 2018])
+# not normal.
+qqnorm(ride_data$rdistance[ride_data$membership == "Customer" & ride_data$start_year == 2018])
+# not normal.
+qqnorm(ride_data$rdistance[ride_data$membership == "Subscriber" & ride_data$start_year == 2019])
+# not normal.
+qqnorm(ride_data$rdistance[ride_data$membership == "Customer" & ride_data$start_year == 2019])
+# not normal.
+qqnorm(ride_data$rdistance[ride_data$membership == "Subscriber" & ride_data$start_year == 2020])
+# not normal.
+qqnorm(ride_data$rdistance[ride_data$membership == "Customer" & ride_data$start_year == 2020])
+# not normal.
+qqnorm(ride_data$rdistance[ride_data$membership == "Subscriber" & ride_data$start_year == 2021])
+# not normal.
+qqnorm(ride_data$rdistance[ride_data$membership == "Customer" & ride_data$start_year == 2021])
+# not normal.
+qqnorm(ride_data$rdistance[ride_data$membership == "Subscriber" & ride_data$start_year == 2022])
+# not normal.
+qqnorm(ride_data$rdistance[ride_data$membership == "Customer" & ride_data$start_year == 2022])
+# not normal.
+qqnorm(ride_data$rdistance[ride_data$membership == "Subscriber" & ride_data$start_year == 2023])
+# not normal.
+qqnorm(ride_data$rdistance[ride_data$membership == "Customer" & ride_data$start_year == 2023])
+# not normal.
+
+# as the data is not normally distributed, we can use a non-parametric ANOVA to test whether the observed difference is statistically significant for subscribers and customers, respectively.
+# for subscribers
+kruskal_sub_result <- kruskal.test(data = ride_data[ride_data$membership == "Subscriber", ], rdistance ~ start_year)
+kruskal_sub_result
+# p-value < 2.2e-16, and the difference among years are significant!
+
+# let's follow up with a pairwise comparison to find out between which years, the difference is significant.
+# we can achieve this with Wilcoxon signed ranking test
+wsr_sub_data <- ride_data[ride_data$membership == "Subscriber", ] %>%
+  select(start_year, rdistance)
+wsr_sub_data$start_year <- as.factor(wsr_sub_data$start_year)
+wsr_sub_result <- dunn_test(data = wsr_sub_data, rdistance ~ start_year, p.adjust.method = "bonferroni")
+wsr_sub_result
+invisible(gc())
+# ride distances are statistically different between any two given year.
+
+# for customers
+kruskal_cus_result <- kruskal.test(data = ride_data[ride_data$membership == "Customer", ], rdistance ~ start_year)
+kruskal_cus_result
+# p-value < 2.2e-16, and the difference among years are significant!
+
+# let's follow up with a Wilcoxon signed ranking test
+wsr_cus_data <- ride_data[ride_data$membership == "Customer", ] %>%
+  select(start_year, rdistance)
+wsr_cus_data$start_year <- as.factor(wsr_cus_data$start_year)
+wsr_cus_result <- dunn_test(data = wsr_cus_data, rdistance ~ start_year, p.adjust.method = "bonferroni")
+wsr_cus_result
+# ride distances of customers are significantly different between any given year, except between 2013 asnd 2020, between 2014 and 2015, between 2016 and 2017, between 2018 and 2019.
+invisible(gc())
+```
+Result of this section: (1) the observerd difference in ride distance is
+generally significant in a statistic sense (2) ride distances of subscribers
+have unique profile for each year.
+
+Compute the descriptive statistics from 2013 to 2023 by weekdays
+```{r}
+tri_rd_wday <- data.frame(
+  weekday = c(rep("Mon", 2), rep("Tue", 2), rep("Wed", 2), rep("Thu", 2), rep("Fri", 2), rep("Sat", 2), rep("Sun", 2)),
+  membership = c("Subscriber", "Customer"),
+  max_distance = c(round(max(ride_data$rdistance[ride_data$membership == "Subscriber" & ride_data$start_day == "Mon" & ride_data$rdistance != 0]), digits = 2),
+                   round(max(ride_data$rdistance[ride_data$membership == "Customer" & ride_data$start_day == "Mon" & ride_data$rdistance != 0]), digits = 2),
+                   round(max(ride_data$rdistance[ride_data$membership == "Subscriber" & ride_data$start_day == "Tue" & ride_data$rdistance != 0]), digits = 2),
+                   round(max(ride_data$rdistance[ride_data$membership == "Customer" & ride_data$start_day == "Tue" & ride_data$rdistance != 0]), digits = 2),
+                   round(max(ride_data$rdistance[ride_data$membership == "Subscriber" & ride_data$start_day == "Wed" & ride_data$rdistance != 0]), digits = 2),
+                   round(max(ride_data$rdistance[ride_data$membership == "Customer" & ride_data$start_day == "Wed" & ride_data$rdistance != 0]), digits = 2),
+                   round(max(ride_data$rdistance[ride_data$membership == "Subscriber" & ride_data$start_day == "Thu" & ride_data$rdistance != 0]), digits = 2),
+                   round(max(ride_data$rdistance[ride_data$membership == "Customer" & ride_data$start_day == "Thu" & ride_data$rdistance != 0]), digits = 2),
+                   round(max(ride_data$rdistance[ride_data$membership == "Subscriber" & ride_data$start_day == "Fri" & ride_data$rdistance != 0]), digits = 2),
+                   round(max(ride_data$rdistance[ride_data$membership == "Customer" & ride_data$start_day == "Fri" & ride_data$rdistance != 0]), digits = 2),
+                   round(max(ride_data$rdistance[ride_data$membership == "Subscriber" & ride_data$start_day == "Sat" & ride_data$rdistance != 0]), digits = 2),
+                   round(max(ride_data$rdistance[ride_data$membership == "Customer" & ride_data$start_day == "Sat" & ride_data$rdistance != 0]), digits = 2),
+                   round(max(ride_data$rdistance[ride_data$membership == "Subscriber" & ride_data$start_day == "Sun" & ride_data$rdistance != 0]), digits = 2),
+                   round(max(ride_data$rdistance[ride_data$membership == "Customer" & ride_data$start_day == "Sun" & ride_data$rdistance != 0]), digits = 2)),
+  
+  min_distance = c(round(min(ride_data$rdistance[ride_data$membership == "Subscriber" & ride_data$start_day == "Mon" & ride_data$rdistance != 0]), digits = 2),
+                   round(min(ride_data$rdistance[ride_data$membership == "Customer" & ride_data$start_day == "Mon" & ride_data$rdistance != 0]), digits = 2),
+                   round(min(ride_data$rdistance[ride_data$membership == "Subscriber" & ride_data$start_day == "Tue" & ride_data$rdistance != 0]), digits = 2),
+                   round(min(ride_data$rdistance[ride_data$membership == "Customer" & ride_data$start_day == "Tue" & ride_data$rdistance != 0]), digits = 2),
+                   round(min(ride_data$rdistance[ride_data$membership == "Subscriber" & ride_data$start_day == "Wed" & ride_data$rdistance != 0]), digits = 2),
+                   round(min(ride_data$rdistance[ride_data$membership == "Customer" & ride_data$start_day == "Wed" & ride_data$rdistance != 0]), digits = 2),
+                   round(min(ride_data$rdistance[ride_data$membership == "Subscriber" & ride_data$start_day == "Thu" & ride_data$rdistance != 0]), digits = 2),
+                   round(min(ride_data$rdistance[ride_data$membership == "Customer" & ride_data$start_day == "Thu" & ride_data$rdistance != 0]), digits = 2),
+                   round(min(ride_data$rdistance[ride_data$membership == "Subscriber" & ride_data$start_day == "Fri" & ride_data$rdistance != 0]), digits = 2),
+                   round(min(ride_data$rdistance[ride_data$membership == "Customer" & ride_data$start_day == "Fri" & ride_data$rdistance != 0]), digits = 2),
+                   round(min(ride_data$rdistance[ride_data$membership == "Subscriber" & ride_data$start_day == "Sat" & ride_data$rdistance != 0]), digits = 2),
+                   round(min(ride_data$rdistance[ride_data$membership == "Customer" & ride_data$start_day == "Sat" & ride_data$rdistance != 0]), digits = 2),
+                   round(min(ride_data$rdistance[ride_data$membership == "Subscriber" & ride_data$start_day == "Sun" & ride_data$rdistance != 0]), digits = 2),
+                   round(min(ride_data$rdistance[ride_data$membership == "Customer" & ride_data$start_day == "Sun" & ride_data$rdistance != 0]), digits = 2)),
+  
+  mean_distance = c(round(mean(ride_data$rdistance[ride_data$membership == "Subscriber" & ride_data$start_day == "Mon" & ride_data$rdistance != 0]), digits = 2),
+                    round(mean(ride_data$rdistance[ride_data$membership == "Customer" & ride_data$start_day == "Mon" & ride_data$rdistance != 0]), digits = 2),
+                    round(mean(ride_data$rdistance[ride_data$membership == "Subscriber" & ride_data$start_day == "Tue" & ride_data$rdistance != 0]), digits = 2),
+                    round(mean(ride_data$rdistance[ride_data$membership == "Customer" & ride_data$start_day == "Tue" & ride_data$rdistance != 0]), digits = 2),
+                    round(mean(ride_data$rdistance[ride_data$membership == "Subscriber" & ride_data$start_day == "Wed" & ride_data$rdistance != 0]), digits = 2),
+                    round(mean(ride_data$rdistance[ride_data$membership == "Customer" & ride_data$start_day == "Wed" & ride_data$rdistance != 0]), digits = 2),
+                    round(mean(ride_data$rdistance[ride_data$membership == "Subscriber" & ride_data$start_day == "Thu" & ride_data$rdistance != 0]), digits = 2),
+                    round(mean(ride_data$rdistance[ride_data$membership == "Customer" & ride_data$start_day == "Thu" & ride_data$rdistance != 0]), digits = 2),
+                    round(mean(ride_data$rdistance[ride_data$membership == "Subscriber" & ride_data$start_day == "Fri" & ride_data$rdistance != 0]), digits = 2),
+                    round(mean(ride_data$rdistance[ride_data$membership == "Customer" & ride_data$start_day == "Fri" & ride_data$rdistance != 0]), digits = 2),
+                    round(mean(ride_data$rdistance[ride_data$membership == "Subscriber" & ride_data$start_day == "Sat" & ride_data$rdistance != 0]), digits = 2),
+                    round(mean(ride_data$rdistance[ride_data$membership == "Customer" & ride_data$start_day == "Sat" & ride_data$rdistance != 0]), digits = 2),
+                    round(mean(ride_data$rdistance[ride_data$membership == "Subscriber" & ride_data$start_day == "Sun" & ride_data$rdistance != 0]), digits = 2),
+                    round(mean(ride_data$rdistance[ride_data$membership == "Customer" & ride_data$start_day == "Sun" & ride_data$rdistance != 0]), digits = 2)),
+  
+  median_distance = c(round(median(ride_data$rdistance[ride_data$membership == "Subscriber" & ride_data$start_day == "Mon" & ride_data$rdistance != 0]), digits = 2),
+                      round(median(ride_data$rdistance[ride_data$membership == "Customer" & ride_data$start_day == "Mon" & ride_data$rdistance != 0]), digits = 2),
+                      round(median(ride_data$rdistance[ride_data$membership == "Subscriber" & ride_data$start_day == "Tue" & ride_data$rdistance != 0]), digits = 2),
+                      round(median(ride_data$rdistance[ride_data$membership == "Customer" & ride_data$start_day == "Tue" & ride_data$rdistance != 0]), digits = 2),
+                      round(median(ride_data$rdistance[ride_data$membership == "Subscriber" & ride_data$start_day == "Wed" & ride_data$rdistance != 0]), digits = 2),
+                      round(median(ride_data$rdistance[ride_data$membership == "Customer" & ride_data$start_day == "Wed" & ride_data$rdistance != 0]), digits = 2),
+                      round(median(ride_data$rdistance[ride_data$membership == "Subscriber" & ride_data$start_day == "Thu" & ride_data$rdistance != 0]), digits = 2),
+                      round(median(ride_data$rdistance[ride_data$membership == "Customer" & ride_data$start_day == "Thu" & ride_data$rdistance != 0]), digits = 2),
+                      round(median(ride_data$rdistance[ride_data$membership == "Subscriber" & ride_data$start_day == "Fri" & ride_data$rdistance != 0]), digits = 2),
+                      round(median(ride_data$rdistance[ride_data$membership == "Customer" & ride_data$start_day == "Fri" & ride_data$rdistance != 0]), digits = 2),
+                      round(median(ride_data$rdistance[ride_data$membership == "Subscriber" & ride_data$start_day == "Sat" & ride_data$rdistance != 0]), digits = 2),
+                      round(median(ride_data$rdistance[ride_data$membership == "Customer" & ride_data$start_day == "Sat" & ride_data$rdistance != 0]), digits = 2),
+                      round(median(ride_data$rdistance[ride_data$membership == "Subscriber" & ride_data$start_day == "Sun" & ride_data$rdistance != 0]), digits = 2),
+                      round(median(ride_data$rdistance[ride_data$membership == "Customer" & ride_data$start_day == "Sun" & ride_data$rdistance != 0]), digits = 2)),
+  
+  standard_deviantion = c(sd(ride_data$rdistance[ride_data$membership == "Subscriber" & ride_data$start_day == "Mon" & ride_data$rdistance != 0]),
+                          sd(ride_data$rdistance[ride_data$membership == "Customer" & ride_data$start_day == "Mon" & ride_data$rdistance != 0]),
+                          sd(ride_data$rdistance[ride_data$membership == "Subscriber" & ride_data$start_day == "Tue" & ride_data$rdistance != 0]),
+                          sd(ride_data$rdistance[ride_data$membership == "Customer" & ride_data$start_day == "Tue" & ride_data$rdistance != 0]),
+                          sd(ride_data$rdistance[ride_data$membership == "Subscriber" & ride_data$start_day == "Wed" & ride_data$rdistance != 0]),
+                          sd(ride_data$rdistance[ride_data$membership == "Customer" & ride_data$start_day == "Wed" & ride_data$rdistance != 0]),
+                          sd(ride_data$rdistance[ride_data$membership == "Subscriber" & ride_data$start_day == "Thu" & ride_data$rdistance != 0]),
+                          sd(ride_data$rdistance[ride_data$membership == "Customer" & ride_data$start_day == "Thu" & ride_data$rdistance != 0]),
+                          sd(ride_data$rdistance[ride_data$membership == "Subscriber" & ride_data$start_day == "Fri" & ride_data$rdistance != 0]),
+                          sd(ride_data$rdistance[ride_data$membership == "Customer" & ride_data$start_day == "Fri" & ride_data$rdistance != 0]),
+                          sd(ride_data$rdistance[ride_data$membership == "Subscriber" & ride_data$start_day == "Sat" & ride_data$rdistance != 0]),
+                          sd(ride_data$rdistance[ride_data$membership == "Customer" & ride_data$start_day == "Sat" & ride_data$rdistance != 0]),
+                          sd(ride_data$rdistance[ride_data$membership == "Subscriber" & ride_data$start_day == "Sun" & ride_data$rdistance != 0]),
+                          sd(ride_data$rdistance[ride_data$membership == "Customer" & ride_data$start_day == "Sun" & ride_data$rdistance != 0]))
+)
+kable(tri_rd_wday, style = "rmarkdown")
+
+# visualise 
+# create a box plot.
+p_tri_rd_wday_box <- ggplot(ride_data, aes(x =  factor(start_day,
+                                                       level = c("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")), 
+                                           y = rdistance, colour = membership, fill = membership)) + 
+  geom_boxplot(stat = "boxplot", alpha = 0.3) +
+  scale_y_continuous(limits = quantile(ride_data$rdistance, c(0.1, 0.9))) +
+  xlab("Weekdays") +
+  ylab("Ride Distance") +
+  ggtitle("Ride Distance by Subscribers and Customers (daily Monday - Friday)") +
+  scale_colour_manual(name = "membership", values = c("#41B6E6", "#E4002B")) + 
+  scale_fill_manual(name = "membership", values = c("#41B6E6", "#E4002B")) + 
+  theme_classic() +
+  theme(plot.title = element_text(hjust = 0.5))
+p_tri_rd_wday_box
+invisible(gc())
+# subscribers consistently have shorter mean ride distance than customers.
+
+# scatter points to visualise the entire data set.
+ride_data$membership <- as.factor(ride_data$membership)
+p_tri_rd_point_wday <- ggplot(ride_data, aes(x =  start_day, y = rdistance, colour = membership)) + 
+  geom_jitter() +
+  scale_y_continuous(labels = unit_format(unit = "km", scale = 1e-3), expand = c(0, 0), limits = c(0, NA)) +
+  xlab("Weekdays") +
+  ylab("Ride Distance") +
+  ggtitle("Ride Distance by Subscribers and Customers (daily Monday - Friday)") +
+  scale_colour_manual(name = "membership", values = c("#41B6E6", "#E4002B")) + 
+  theme_classic() +
+  theme(plot.title = element_text(hjust = 0.5))
+p_tri_rd_point_wday
+invisible(gc())
+
+# create a line plot to see fluctuation of means during a given week explicitly.
+p_tri_rd_line_wday <- ggplot(data = tri_rd_wday) +  
+  geom_line(aes(x = factor(weekday, 
+                           level = c("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")), 
+                y = mean_distance, group = membership, color = membership)) +
+  geom_line(linetype = "dashed", aes(x = factor(weekday, 
+                                                level = c("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")), 
+                                     y = median_distance, group = membership, color = membership)) +
+  xlab("Weekdays") +
+  ylab("Ride Distance") +
+  ggtitle("Ride Distance by Subscribers and Customers (daily Monday - Friday)") +
+  scale_colour_manual(name = "membership", values = c("#41B6E6", "#E4002B")) + 
+  scale_y_continuous(labels = unit_format(unit = "KM", scale = 1e-3), expand = c(0, 0), limits = c(0, NA)) +
+  theme_classic() +
+  theme(plot.title = element_text(hjust = 0.5))
+p_tri_rd_line_wday
+
+invisible(gc())
+```
+Result of this section: (1) subscribers consistently have shorter mean ride
+distance than customers.
+
+Using statistic tests to examine whether the observed differences among the
+weekdays are significant.
+```{r}
+# perform statistic tests
+# check for normality
+qqnorm(ride_data$rdistance[ride_data$membership == "Subscriber" & ride_data$start_day == "Mon"])
+# not normal
+qqnorm(ride_data$rdistance[ride_data$membership == "Customer" & ride_data$start_day == "Mon"])
+# not normal
+qqnorm(ride_data$rdistance[ride_data$membership == "Subscriber" & ride_data$start_day == "Tue"])
+# not normal
+qqnorm(ride_data$rdistance[ride_data$membership == "Customer" & ride_data$start_day == "Tue"])
+# not normal
+qqnorm(ride_data$rdistance[ride_data$membership == "Subscriber" & ride_data$start_day == "Wed"])
+# not normal
+qqnorm(ride_data$rdistance[ride_data$membership == "Customer" & ride_data$start_day == "Wed"])
+# not normal
+qqnorm(ride_data$rdistance[ride_data$membership == "Subscriber" & ride_data$start_day == "Thu"])
+# not normal
+qqnorm(ride_data$rdistance[ride_data$membership == "Customer" & ride_data$start_day == "Thu"])
+# not normal
+qqnorm(ride_data$rdistance[ride_data$membership == "Subscriber" & ride_data$start_day == "Fri"])
+# not normal
+qqnorm(ride_data$rdistance[ride_data$membership == "Customer" & ride_data$start_day == "Fri"])
+# not normal
+qqnorm(ride_data$rdistance[ride_data$membership == "Subscriber" & ride_data$start_day == "Sat"])
+# not normal
+qqnorm(ride_data$rdistance[ride_data$membership == "Customer" & ride_data$start_day == "Sat"])
+# not normal
+qqnorm(ride_data$rdistance[ride_data$membership == "Subscriber" & ride_data$start_day == "Sun"])
+# not normal
+qqnorm(ride_data$rdistance[ride_data$membership == "Customer" & ride_data$start_day == "Sun"])
+# not normal
+
+# as the data is not normally distributed, we can use a non-parametric ANOVA to test whether the observed difference is statistically significant.
+kruskal_sub_result <- kruskal.test(data = ride_data[ride_data$membership == "Subscriber", ], rdistance ~ start_day)
+kruskal_sub_result
+# p-value < 2.2e-16, and the difference among years are significant!
+
+# let's follow up with a pairwise comparison to find out between which weekdays, the difference is significant.
+# we can achieve this with Wilcoxon signed ranking test
+# for subscribers.
+wsr_sub_data <- ride_data[ride_data$membership == "Subscriber", ] %>%
+  select(start_day, rdistance)
+wsr_sub_data$start_year <- as.factor(wsr_sub_data$start_day)
+wsr_sub_result <- dunn_test(data = wsr_sub_data, rdistance ~ start_day, p.adjust.method = "bonferroni")
+wsr_sub_result
+# for subscribers, ride distance is significantly different between weekdays, except for between Tuesday and Wednesday, and between Tuesday and Thursday.
+
+# for customers.
+kruskal_cus_result <- kruskal.test(data = ride_data[ride_data$membership == "Customer", ], rdistance ~ start_day)
+kruskal_cus_result
+# p-value < 2.2e-16, and the difference among years are significant!
+
+# let's follow up with a pairwise comparison to find out between which weekdays, the difference is significant.
+# we can achieve this with Wilcoxon signed ranking test
+wsr_cus_data <- ride_data[ride_data$membership == "Customer", ] %>%
+  select(start_day, rdistance)
+wsr_cus_data$start_year <- as.factor(wsr_cus_data$start_day)
+wsr_cus_result <- dunn_test(data = wsr_cus_data, rdistance ~ start_day, p.adjust.method = "bonferroni")
+wsr_cus_result
+# for customers, ride distance is significantly different between weekdays, except for the days among Wednesday through Friday.
+invisible(gc())
+```
+Result of this section: (1) for subscribers, ride distance is significantly
+different from Friday to Monday, but the ride distance is comparable from
+Tuesday through Thursday. (2) for customers, ride distance is significantly
+different for a given weekday except for those among Wednesday through Friday.
+(3) both subscribers and customers have comparable ride distance on Wednesday
+and Thursday within the same membership category.
+
+### Geographic location as a primary metric
+Examine the geospatial distribution of where rides start and end
+```{r}
+# What are the geographic distributions of subscribers and customers in Chicago?
+# convert dataframe numbers to GPS format
+start_map <- ride_data[, c(8:10)]
+start_map <- st_as_sf(start_map, coords = c("start_station_lon", "start_station_lat"))
+start_map$membership <- as.factor(start_map$membership)
+end_map <- ride_data[, c(8, 14, 15)]
+end_map <- st_as_sf(end_map, coords = c("end_station_lon", "end_station_lat"))
+end_map$membership <- as.factor(end_map$membership)
+
+# remove the unused object to save RAM
+invisible(gc())
+
+# I have limited RAM on my computer so I need to transform and simplify the dataset
+# data from 2013 to 2023 are compiled into one, and only the distinct rows are preserved
+# the number of duplicate rows are counted and used as a scaling factor
+# for start station
+start_map <- start_map %>%  
+  group_by_all() %>%  
+  count
+start_map$n <- (start_map$n)
+colnames(start_map) <- c("membership", "geometry", "Number of Ride")
+invisible(gc())
+
+start_map_plot <- tm_shape(shp = chicago) + 
+  tm_polygons(col = "#FFFAD7") + 
+  tm_shape(start_map) + 
+  tm_bubbles(col = "membership", palette = c("#41B6E6", "#E4002B"), jitter = 0.01  , size = "Number of Ride") +
+  tm_layout(legend.outside = TRUE) +
+  tm_layout(legend.position = c("right", "bottom"), 
+            title= "Locations of End Stations", 
+            title.position = c("right", "top"))
+start_map_plot
+invisible(gc())
+
+end_map <- end_map %>%  
+  group_by_all() %>%  
+  count
+end_map$n <- (end_map$n)
+colnames(end_map) <- c("membership", "geometry", "Number of Ride")
+invisible(gc())
+
+# for end station
+end_map_plot <- tm_shape(shp = chicago) + 
+  tm_polygons(col = "#FFFAD7") + 
+  tm_shape(end_map) + 
+  tm_bubbles(col = "membership", palette = c("#41B6E6", "#E4002B"), jitter = 0.01  , size = "Number of Ride") +
+  tm_layout(legend.outside = TRUE) +
+  tm_layout(legend.position = c("right", "bottom"), 
+            title= "Locations of End Stations", 
+            title.position = c("right", "top"))
+end_map_plot
+invisible(gc())
+```
+Result of this section: (1) rides most frequently start and end in the northeast
+section of Chicago. (2) Considering only the station with highest ride
+frequency, the end station is a bit south to its corresponding start station.
+
+## General conclusions
+From our examination, exploration, and analyses of the data set, we can derive
+the following conclusions and recommendations:
+
+### Data integrity
+1)  Data loss occurred in 2017 and 2020. Highest numbers of data loss overlap
+    the highest number of rides, which is not surprising. However, rides outside
+    of Chicago proper are mostly if not exclusively found from the loss data
+    portion of the data set. Accordingly, Cyclistic may want to limit their
+    current services to Chicago proper to prevent further data loss, especially
+    if those loss are associated with the loss of the physical bikes.
+2)  data collection evolves as the company grows, which is normal. It would,
+    however, be nice to have consistent terminology for all collected data. If
+    terminology needs to be revised, old data could preferably be updated as the
+    new terminology is put to used.
+
+### rideing behaviours of subscribers and customers
+1)  the number of ride by subscribers are consistently higher than those by the
+    customers when measured by the entire data set and annually. However,
+    customers ride more often than subscribers on weekends. This suggests that
+    subscribers may have been using the services of Cyclistic to commute to and
+    from work.
+2)  subscribers prefers classic bikes whereas customers use electric bikes more.
+    Continue collecting data on user preference may help facilitating service
+    strategies for subscribers and customers in the future, respectively.
+3)  both trip duration and ride distance are generally shorter for subscribers
+    compared to customers. This echoes the possibility that subscribers use
+    services of Cyclistic to commute to and from work.
+4)  the difference in trip duration and ride distance between subscribers and
+    customers is reduced since 2021, which may have been a result of impacts
+    from the COVID-19 pandemic. To further explore the significance of this
+    potential impact, it would be nice to collect/retrieve the number of
+    subscribers and customers throughout the years, in order to examine whether
+    the number of subscribers along with the conversion rate from customers to
+    subscribers have changed.
+5)  most of the ride starts and ends in the northeast parts of Chicago close to
+    the downtown area. The most active start station is only within two
+    districts west to the downtown area of Chicago.
