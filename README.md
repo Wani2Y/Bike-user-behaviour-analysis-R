@@ -3,6 +3,10 @@
 ## project "Capstone Project for Google Data Analytic Certificate"
 This project is an expansion on my Capstone project of my Google Data Analytic Certificate
 
+![Bike Riding Trip Duration of Cyclistic User](https://github.com/user-attachments/assets/bc91a27b-b18d-48f9-ab0f-3640be8c552e)
+
+![Where Bike Users End Their Trips](https://github.com/user-attachments/assets/3d6db2e5-6c40-426f-8610-ac315f0e41b8)
+
 ## Description
 This project uses historical bike ride data from 2013 to 2023, to examine the different riding behaviours between subscribers and customers of Cyclistics. 
 
