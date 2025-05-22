@@ -1,7 +1,6 @@
 # R script
 
-## project "Capstone Project for Google Data Analytic Certificate"
-This project is an expansion on my Capstone project of my Google Data Analytic Certificate
+## Shared Bike Usage in Chicago between 2013 and 2023 with Focus on User Behaviours
 
 ![Bike Riding Trip Duration of Cyclistic User](https://github.com/user-attachments/assets/bc91a27b-b18d-48f9-ab0f-3640be8c552e)
 
